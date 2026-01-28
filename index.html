@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Airplane Animation Software</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <!--The styling is linking directly into the HTML-->
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #0b0f14;
+        color: #e0e0e0;
+        font-family: "Times New Roman", Times, serif;
+        display: flex;
+        flex-direction: column;
+      }
+
+      header {
+        width: 100%;
+        text-align: center;
+        background: linear-gradient(90deg, #0d47a1, #2196f3);
+        color: white;
+        font-size: 2rem;
+        font-weight: bold;
+        padding: 15px 0 10px;
+        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.4);
+        letter-spacing: 1px;
+      }
+
+      .controls {
+        display: flex;
+        justify-content: center;
+        gap: 16px;
+        background: #111827;
+        padding: 12px 0;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+      }
+
+      button {
+        /*Styling the button*/
+        background: linear-gradient(180deg, #1e90ff, #0066cc);
+        border: none;
+        color: white;
+        font-size: 1rem;
+        font-weight: bold;
+        padding: 10px 20px;
+        border-radius: 8px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+      }
+
+      button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(30, 144, 255, 0.4);
+      }
+
+      .pause {
+        background: linear-gradient(180deg, #f0ad4e, #e69500);
+      }
+      .reset {
+        background: linear-gradient(180deg, #5c5c5c, #333333);
+      }
+      .emergency {
+        background: linear-gradient(180deg, #dc3545, #a00014);
+      }
+
+      .map-container {
+        flex: 1;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        padding: 20px;
+        position: relative; /* ⬅️ important for absolute positioning of the plane */
+      }
+
+      /* The canvas now takes the visual role of the image */
+      #mapCanvas {
+        width: 1600px;
+        height: 1600px;
+        border-radius: 10px;
+        box-shadow: 0 8px 25px rgba(0, 0, 0, 0.5);
+        border: 2px solid #1e90ff;
+        background: #111;
+      }
+
+      /* ✈️ Plane overlay at gate position */
+      /* ✈️ Plane overlay */
+      #plane {
+        position: absolute;
+        left: 0px;
+        top: 0px;
+        font-size: 40px;
+        transform-origin: center;
+        pointer-events: none;
+      }
+
+      /* When we want the plane to move */
+      #plane.animating {
+        animation: gateToStartup 4s linear forwards;
+        animation-play-state: running;
+      }
+
+      /* Pause / resume control */
+      #plane.animating.paused {
+        animation-play-state: paused;
+      }
+
+      /* Straight line from (335,230) ➜ (233,215) */
+      @keyframes gateToStartup {
+        0% {
+          transform: translate(0px, 0px) rotate(0deg);
+        }
+        100% {
+          /* Δx = 233 - 335 = -102, Δy = 215 - 230 = -15 */
+          transform: translate(-102px, -15px) rotate(-8deg);
+        }
+      }
+
+      footer {
+        text-align: center;
+        background: #111827;
+        color: #9ca3af;
+        font-size: 0.9rem;
+        padding: 8px 0;
+        border-top: 1px solid #1e293b;
+      }
+    </style>
+  </head>
+  <body>
+    <header>Airplane Animation Software</header>
+
+    <!--Creating the necessary buttons-->
+    <div class="controls">
+      <button class="start">🟢 Start</button>
+      <button class="pause">⏸️ Pause / Resume</button>
+      <button class="reset">🔁 Reset</button>
+      <button class="emergency">🚨 Emergency Stop</button>
+    </div>
+
+    <div class="map-container">
+      <canvas id="mapCanvas" width="1600" height="1600"></canvas>
+      <!--<img src="Airport_Map_no_planes.svg" alt="Airport Map" />-->
+      <div id="plane" class="animating">✈️</div>
+      <!--<img src="Airport_Map_no_planes.svg" alt="Airport Map" />-->
+    </div>
+
+    <footer>ATC Console — Standby Mode</footer>
+
+    <input
+      id="fileInput"
+      type="file"
+      accept=".xlsx"
+      placeholder="Upload Spreadsheet:"
+    />
+
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <script src="data.js" type="module"></script>
+    <script src="index.js" type="module"></script>
+  </body>
+</html>
