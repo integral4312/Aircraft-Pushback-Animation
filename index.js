@@ -63,8 +63,6 @@ const flights = [
   { flightNumber: "6789", stationTime: "12/10/25 8:00:00", start: 1, end: 0 },*/
 ];
 
-applyPathfinding(flights);
-
 let mouse = { x: 0, y: 0 };
 
 img.onload = () => {
@@ -73,8 +71,8 @@ img.onload = () => {
   markTaxiwaysAsNavigable(grid, ctx);
   drawNavigableOverlay(grid, ctx);
 
-  // OPTIONAL: auto-start the first flight once map is ready
-  // applyPathfinding(flights);
+  // Auto-start after navigable tiles are computed from the map.
+  applyPathfinding(flights);
 };
 
 // Function for running the algorithm and fetching flight data
@@ -152,6 +150,10 @@ function applyPathfinding(currentFlights) {
 
     const endNode =
       grid.grid[startupLocations[flight.end].x][startupLocations[flight.end].y];
+
+    // Ensure endpoints are traversable even if the map color check misses them.
+    startNode.navigable = true;
+    endNode.navigable = true;
 
     const pathNodes = pathFinder.aStar(startNode, endNode);
 
