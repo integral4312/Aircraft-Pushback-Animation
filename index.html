@@ -7,73 +7,243 @@
 
     <!--The styling is linking directly into the HTML-->
     <style>
+      @import url("https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,800&family=Space+Grotesk:wght@400;600&display=swap");
+
+      :root {
+        --ink: #0b0f14;
+        --midnight: #0a0d12;
+        --glow: #2df2ff;
+        --ember: #ff7a59;
+        --panel: rgba(12, 20, 28, 0.85);
+        --stroke: rgba(255, 255, 255, 0.12);
+      }
+
       html,
       body {
         margin: 0;
         height: 100%;
-        background: #0b0f14;
-        color: #e0e0e0;
-        font-family: "Times New Roman", Times, serif;
+        background: radial-gradient(1200px 800px at 15% 10%, #163044, #0a0d12 70%);
+        color: #e8edf2;
+        font-family: "Space Grotesk", system-ui, sans-serif;
         display: flex;
         flex-direction: column;
+        overflow-y: auto;
+      }
+
+      body::before,
+      body::after {
+        content: "";
+        position: absolute;
+        border-radius: 999px;
+        pointer-events: none;
+        z-index: 0;
+        filter: blur(2px);
+      }
+
+      body::before {
+        width: 52vw;
+        height: 52vw;
+        top: -10vw;
+        left: -12vw;
+        background: radial-gradient(circle, rgba(45, 242, 255, 0.2), transparent 60%);
+      }
+
+      body::after {
+        width: 46vw;
+        height: 46vw;
+        right: -12vw;
+        bottom: -10vw;
+        background: radial-gradient(circle, rgba(255, 122, 89, 0.18), transparent 60%);
       }
 
       header {
+        position: relative;
+        z-index: 1;
         width: 100%;
         text-align: center;
-        background: linear-gradient(90deg, #0d47a1, #2196f3);
+        background: linear-gradient(120deg, rgba(13, 71, 161, 0.6), rgba(33, 150, 243, 0.25));
         color: white;
-        font-size: 2rem;
-        font-weight: bold;
-        padding: 15px 0 10px;
-        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.4);
-        letter-spacing: 1px;
+        font-size: 2.2rem;
+        font-weight: 800;
+        font-family: "Fraunces", serif;
+        padding: 18px 0 12px;
+        letter-spacing: 2px;
+        text-transform: uppercase;
+        border-bottom: 1px solid var(--stroke);
+        box-shadow: 0 14px 32px rgba(0, 0, 0, 0.35);
+      }
+
+      .subhead {
+        margin-top: 6px;
+        font-size: 0.8rem;
+        letter-spacing: 3px;
+        color: rgba(255, 255, 255, 0.7);
       }
 
       .controls {
+        position: relative;
+        z-index: 1;
         display: flex;
         justify-content: center;
-        gap: 16px;
-        background: #111827;
+        gap: 14px;
+        background: rgba(10, 15, 20, 0.7);
         padding: 12px 0;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+        border-bottom: 1px solid var(--stroke);
+        backdrop-filter: blur(8px);
       }
 
       button {
-        /*Styling the button*/
-        background: linear-gradient(180deg, #1e90ff, #0066cc);
-        border: none;
+        background: linear-gradient(160deg, rgba(45, 242, 255, 0.25), rgba(255, 122, 89, 0.15));
+        border: 1px solid rgba(255, 255, 255, 0.2);
         color: white;
-        font-size: 1rem;
-        font-weight: bold;
-        padding: 10px 20px;
-        border-radius: 8px;
+        font-size: 0.95rem;
+        font-weight: 600;
+        padding: 10px 18px;
+        border-radius: 999px;
         cursor: pointer;
         transition: all 0.2s ease;
+        text-transform: uppercase;
+        letter-spacing: 1px;
       }
 
       button:hover {
         transform: translateY(-2px);
-        box-shadow: 0 4px 12px rgba(30, 144, 255, 0.4);
+        box-shadow: 0 10px 18px rgba(45, 242, 255, 0.25);
       }
 
       .pause {
-        background: linear-gradient(180deg, #f0ad4e, #e69500);
+        background: linear-gradient(160deg, rgba(255, 224, 138, 0.4), rgba(255, 122, 89, 0.2));
       }
       .reset {
-        background: linear-gradient(180deg, #5c5c5c, #333333);
+        background: linear-gradient(160deg, rgba(120, 130, 140, 0.4), rgba(40, 50, 60, 0.35));
       }
       .emergency {
-        background: linear-gradient(180deg, #dc3545, #a00014);
+        background: linear-gradient(160deg, rgba(255, 77, 77, 0.6), rgba(120, 0, 20, 0.4));
       }
 
-      .map-container {
+      .main {
+        position: relative;
+        z-index: 1;
         flex: 1;
+        display: grid;
+        grid-template-columns: minmax(220px, 280px) 1fr;
+        gap: 24px;
+        padding: 24px;
+      }
+
+      .shape {
+        position: absolute;
+        border-radius: 999px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: linear-gradient(140deg, rgba(45, 242, 255, 0.15), rgba(255, 122, 89, 0.1));
+        pointer-events: none;
+      }
+
+      .shape.one {
+        width: 220px;
+        height: 220px;
+        top: 90px;
+        left: 40px;
+        opacity: 0.8;
+      }
+
+      .shape.two {
+        width: 160px;
+        height: 160px;
+        bottom: 110px;
+        right: 90px;
+        opacity: 0.7;
+      }
+
+      .shape.three {
+        width: 120px;
+        height: 120px;
+        top: 250px;
+        right: 220px;
+        opacity: 0.5;
+      }
+
+      .sidebar {
+        background: var(--panel);
+        border: 1px solid var(--stroke);
+        border-radius: 16px;
+        padding: 18px;
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+        box-shadow: 0 16px 30px rgba(0, 0, 0, 0.35);
+      }
+
+      .sidebar h2 {
+        margin: 0;
+        font-size: 1.05rem;
+        letter-spacing: 1px;
+        text-transform: uppercase;
+      }
+
+      .stat {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 10px 12px;
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid rgba(255, 255, 255, 0.06);
+      }
+
+      .pill {
+        padding: 4px 10px;
+        border-radius: 999px;
+        background: rgba(45, 242, 255, 0.18);
+        color: #d7fbff;
+        font-size: 0.8rem;
+        letter-spacing: 1px;
+        text-transform: uppercase;
+      }
+
+      .weather-card {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        padding: 12px;
+        border-radius: 14px;
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+      }
+
+      .weather-title {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 0.95rem;
+        letter-spacing: 1px;
+        text-transform: uppercase;
+      }
+
+      .weather-rows {
+        display: grid;
+        gap: 6px;
+      }
+
+      .weather-row {
+        display: flex;
+        justify-content: space-between;
+        color: rgba(232, 237, 242, 0.9);
+        font-size: 0.9rem;
+      }
+
+
+      .map-container {
         display: flex;
         justify-content: center;
         align-items: center;
-        padding: 20px;
         position: relative; /* ⬅️ important for absolute positioning of the plane */
+        padding: 14px;
+        border-radius: 22px;
+        background: linear-gradient(160deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.01));
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04),
+          0 20px 50px rgba(0, 0, 0, 0.35);
       }
 
       /* The canvas now takes the visual role of the image */
@@ -81,13 +251,12 @@
         width: 800px;
         height: 800px;
         border-radius: 10px;
-        box-shadow: 0 8px 25px rgba(0, 0, 0, 0.5);
-        border: 2px solid #1e90ff;
-        background: #111;
+        box-shadow: 0 20px 50px rgba(0, 0, 0, 0.55);
+        border: 2px solid rgba(45, 242, 255, 0.35);
+        background: #0d1218;
       }
 
       /* ✈️ Plane overlay at gate position */
-      /* ✈️ Plane overlay */
       #plane {
         position: absolute;
         left: 0px;
@@ -119,18 +288,47 @@
         }
       }
 
+      .upload {
+        position: relative;
+        z-index: 1;
+        display: flex;
+        justify-content: center;
+        padding-bottom: 14px;
+      }
+
+      #fileInput {
+        padding: 8px 12px;
+        border-radius: 10px;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        background: rgba(10, 15, 20, 0.7);
+        color: #e8edf2;
+        font-size: 0.9rem;
+      }
+
       footer {
         text-align: center;
-        background: #111827;
+        background: rgba(12, 20, 28, 0.85);
         color: #9ca3af;
         font-size: 0.9rem;
         padding: 8px 0;
-        border-top: 1px solid #1e293b;
+        border-top: 1px solid var(--stroke);
+      }
+
+      @media (max-width: 1024px) {
+        .main {
+          grid-template-columns: 1fr;
+        }
+        .sidebar {
+          order: 2;
+        }
       }
     </style>
   </head>
   <body>
-    <header>Airplane Animation Software</header>
+    <header>
+      Airplane Animation Software
+      <div class="subhead">FLL Ground Ops / Live Simulation</div>
+    </header>
 
     <!--Creating the necessary buttons-->
     <div class="controls">
@@ -140,21 +338,74 @@
       <button class="emergency">🚨 Emergency Stop</button>
     </div>
 
-    <div class="map-container">
-      <canvas id="mapCanvas" width="800" height="800"></canvas>
-      <!--<img src="Airport_Map_no_planes.svg" alt="Airport Map" />-->
-      <div id="plane" class="animating">✈️</div>
-      <!--<img src="Airport_Map_no_planes.svg" alt="Airport Map" />-->
-    </div>
+    <main class="main">
+      <div class="shape one"></div>
+      <div class="shape two"></div>
+      <div class="shape three"></div>
+
+      <aside class="sidebar">
+        <h2>Ops Brief</h2>
+        <div class="stat">
+          <span>Runway Status</span>
+          <span class="pill">Active</span>
+        </div>
+        <div class="stat">
+          <span>Weather</span>
+          <span class="pill">Calm</span>
+        </div>
+        <div class="stat">
+          <span>Pushback Queue</span>
+          <span class="pill">1 Flight</span>
+        </div>
+        <div class="stat">
+          <span>Taxiway Grid</span>
+          <span class="pill">300x300</span>
+        </div>
+
+        <div class="weather-card" id="weatherBox">
+          <div class="weather-title">
+            <span>Weather</span>
+            <span class="pill" id="weatherStatus">Loading</span>
+          </div>
+          <div class="weather-rows">
+            <div class="weather-row">
+              <span>Temp</span>
+              <span id="wxTemp">—</span>
+            </div>
+            <div class="weather-row">
+              <span>Wind</span>
+              <span id="wxWind">—</span>
+            </div>
+            <div class="weather-row">
+              <span>Humidity</span>
+              <span id="wxHumidity">—</span>
+            </div>
+            <div class="weather-row">
+              <span>Pressure</span>
+              <span id="wxPressure">—</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="upload">
+          <input
+            id="fileInput"
+            type="file"
+            accept=".xlsx"
+            placeholder="Upload Spreadsheet:"
+          />
+        </div>
+      </aside>
+
+      <div class="map-container">
+        <canvas id="mapCanvas" width="800" height="800"></canvas>
+        <!--<img src="Airport_Map_no_planes.svg" alt="Airport Map" />-->
+        <div id="plane" class="animating">✈️</div>
+        <!--<img src="Airport_Map_no_planes.svg" alt="Airport Map" />-->
+      </div>
+    </main>
 
     <footer>ATC Console — Standby Mode</footer>
-
-    <input
-      id="fileInput"
-      type="file"
-      accept=".xlsx"
-      placeholder="Upload Spreadsheet:"
-    />
 
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <script src="data.js" type="module"></script>

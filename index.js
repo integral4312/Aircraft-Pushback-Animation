@@ -7,6 +7,11 @@ const canvas = document.getElementById("mapCanvas");
 const ctx = canvas.getContext("2d");
 
 const plane = document.getElementById("plane");
+const weatherStatus = document.getElementById("weatherStatus");
+const wxTemp = document.getElementById("wxTemp");
+const wxWind = document.getElementById("wxWind");
+const wxHumidity = document.getElementById("wxHumidity");
+const wxPressure = document.getElementById("wxPressure");
 
 // Array holding the grid of nodes for the algorithm
 const grid = new Grid(300, canvas);
@@ -63,8 +68,6 @@ const flights = [
   { flightNumber: "6789", stationTime: "12/10/25 8:00:00", start: 1, end: 0 },*/
 ];
 
-applyPathfinding(flights);
-
 let mouse = { x: 0, y: 0 };
 
 img.onload = () => {
@@ -73,9 +76,12 @@ img.onload = () => {
   markTaxiwaysAsNavigable(grid, ctx);
   drawNavigableOverlay(grid, ctx);
 
-  // OPTIONAL: auto-start the first flight once map is ready
-  // applyPathfinding(flights);
+  // Auto-start after navigable tiles are computed from the map.
+  applyPathfinding(flights);
 };
+
+fetchWeatherAndMetar();
+setInterval(fetchWeatherAndMetar, 10 * 60 * 1000);
 
 // Function for running the algorithm and fetching flight data
 async function main() {
@@ -99,6 +105,61 @@ function pixelsToMeters(pixels) {
 
 function metersToPixels(meters) {
   return meters * 1.80893159977;
+}
+
+function toCardinal(deg) {
+  if (deg === null || deg === undefined || Number.isNaN(deg)) return "—";
+  const directions = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+  const idx = Math.round(((deg % 360) / 45)) % 8;
+  return directions[idx];
+}
+
+async function fetchWeatherAndMetar() {
+  const obsUrl =
+    "https://api.weather.gov/stations/KFLL/observations/latest?require_qc=false";
+
+  if (weatherStatus) weatherStatus.textContent = "Loading";
+
+  try {
+    const obsRes = await fetch(obsUrl);
+    const obsData = await obsRes.json();
+    const props = obsData?.properties || {};
+
+    const tempC = props?.temperature?.value;
+    const windMs = props?.windSpeed?.value;
+    const windDir = props?.windDirection?.value;
+    const humidity = props?.relativeHumidity?.value;
+    const pressurePa = props?.barometricPressure?.value;
+
+    if (wxTemp) {
+      const f = tempC === null || tempC === undefined ? null : tempC * 1.8 + 32;
+      wxTemp.textContent = f === null ? "—" : `${Math.round(f)}°F`;
+    }
+    if (wxWind) {
+      const kt =
+        windMs === null || windMs === undefined ? null : windMs * 1.94384;
+      const dir = toCardinal(windDir);
+      wxWind.textContent =
+        kt === null ? `— ${dir}` : `${Math.round(kt)} kt ${dir}`;
+    }
+    if (wxHumidity)
+      wxHumidity.textContent =
+        humidity === null || humidity === undefined
+          ? "—"
+          : `${Math.round(humidity)}%`;
+    if (wxPressure)
+      wxPressure.textContent =
+        pressurePa === null || pressurePa === undefined
+          ? "—"
+          : `${Math.round(pressurePa / 100)} hPa`;
+    if (weatherStatus) weatherStatus.textContent = "Live";
+  } catch (err) {
+    if (wxTemp) wxTemp.textContent = "—";
+    if (wxWind) wxWind.textContent = "—";
+    if (wxHumidity) wxHumidity.textContent = "—";
+    if (wxPressure) wxPressure.textContent = "—";
+    if (weatherStatus) weatherStatus.textContent = "Unavailable";
+  }
 }
 
 function markTaxiwaysAsNavigable(grid, ctx) {
@@ -152,6 +213,10 @@ function applyPathfinding(currentFlights) {
 
     const endNode =
       grid.grid[startupLocations[flight.end].x][startupLocations[flight.end].y];
+
+    // Ensure endpoints are traversable even if the map color check misses them.
+    startNode.navigable = true;
+    endNode.navigable = true;
 
     const pathNodes = pathFinder.aStar(startNode, endNode);
 
