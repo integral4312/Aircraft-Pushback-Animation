@@ -161,11 +161,8 @@ function applyPathfinding(currentFlights) {
     }
 
     // ✅ Keep in GRID coords: [[x,y],...]
-    // If aStar returns Node objects:
-    const pathGrid = pathNodes.map((n) => [n.x, n.y]);
-
-    // If aStar already returns [x,y], then use:
-    // const pathGrid = pathNodes;
+    const pathGrid =
+      Array.isArray(pathNodes[0]) ? pathNodes : pathNodes.map((n) => [n.x, n.y]);
 
     animator.startPath(plane, pathGrid, 140);
     break; // animate first flight only for now
