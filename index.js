@@ -63,7 +63,7 @@ const startupLocations = [
 ];
 
 const flights = [
-  { flightNumber: "7142", stationTime: "12/10/25 8:00:00", start: 0, end: 2 },
+  { flightNumber: "7142", stationTime: "12/10/25 8:00:00", start: 0, end: 0 },
   /*{ flightNumber: "1452", stationTime: "12/10/25 8:00:00", start: 1, end: 1 },
   { flightNumber: "6789", stationTime: "12/10/25 8:00:00", start: 1, end: 0 },*/
 ];
@@ -202,21 +202,85 @@ function drawNavigableOverlay(grid, ctx) {
   ctx.restore();
 }
 
+function nearestNavigableNode(grid, x, y) {
+  const maxRadius = grid.size;
+  const clampedX = Math.max(0, Math.min(grid.size - 1, x));
+  const clampedY = Math.max(0, Math.min(grid.size - 1, y));
+
+  if (grid.grid[clampedX][clampedY].navigable) {
+    return grid.grid[clampedX][clampedY];
+  }
+
+  for (let radius = 1; radius <= maxRadius; radius++) {
+    for (let dx = -radius; dx <= radius; dx++) {
+      const x1 = clampedX + dx;
+      const yTop = clampedY - radius;
+      const yBottom = clampedY + radius;
+
+      if (
+        grid.grid[x1] &&
+        grid.grid[x1][yTop] &&
+        grid.grid[x1][yTop].navigable
+      ) {
+        return grid.grid[x1][yTop];
+      }
+      if (
+        grid.grid[x1] &&
+        grid.grid[x1][yBottom] &&
+        grid.grid[x1][yBottom].navigable
+      ) {
+        return grid.grid[x1][yBottom];
+      }
+    }
+
+    for (let dy = -radius + 1; dy <= radius - 1; dy++) {
+      const y1 = clampedY + dy;
+      const xLeft = clampedX - radius;
+      const xRight = clampedX + radius;
+
+      if (
+        grid.grid[xLeft] &&
+        grid.grid[xLeft][y1] &&
+        grid.grid[xLeft][y1].navigable
+      ) {
+        return grid.grid[xLeft][y1];
+      }
+      if (
+        grid.grid[xRight] &&
+        grid.grid[xRight][y1] &&
+        grid.grid[xRight][y1].navigable
+      ) {
+        return grid.grid[xRight][y1];
+      }
+    }
+  }
+
+  return null;
+}
+
 function applyPathfinding(currentFlights) {
   for (let flight of currentFlights) {
     const pathFinder = new PathHandler(grid);
 
-    const startNode =
+    const requestedStart =
       grid.grid[gateCoordinates[flight.start].x][
         gateCoordinates[flight.start].y
       ];
 
-    const endNode =
+    const requestedEnd =
       grid.grid[startupLocations[flight.end].x][startupLocations[flight.end].y];
 
-    // Ensure endpoints are traversable even if the map color check misses them.
-    startNode.navigable = true;
-    endNode.navigable = true;
+    const startNode = nearestNavigableNode(
+      grid,
+      requestedStart.x,
+      requestedStart.y
+    );
+    const endNode = nearestNavigableNode(grid, requestedEnd.x, requestedEnd.y);
+
+    if (!startNode || !endNode) {
+      console.warn("No navigable start/end node found for flight.", flight);
+      continue;
+    }
 
     const pathNodes = pathFinder.aStar(startNode, endNode);
 
@@ -228,6 +292,15 @@ function applyPathfinding(currentFlights) {
     // ✅ Keep in GRID coords: [[x,y],...]
     const pathGrid =
       Array.isArray(pathNodes[0]) ? pathNodes : pathNodes.map((n) => [n.x, n.y]);
+
+    const hasNonNavigableStep = pathGrid.some(
+      ([x, y]) => !grid.grid[x] || !grid.grid[x][y] || !grid.grid[x][y].navigable
+    );
+
+    if (hasNonNavigableStep) {
+      console.warn("Path contains non-navigable nodes; aborting animation.");
+      continue;
+    }
 
     animator.startPath(plane, pathGrid, 140);
     break; // animate first flight only for now
