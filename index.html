@@ -248,8 +248,8 @@
 
       /* The canvas now takes the visual role of the image */
       #mapCanvas {
-        width: 800px;
-        height: 800px;
+        width: 1600px;
+        height: 1600px;
         border-radius: 10px;
         box-shadow: 0 20px 50px rgba(0, 0, 0, 0.55);
         border: 2px solid rgba(45, 242, 255, 0.35);
@@ -264,28 +264,6 @@
         font-size: 40px;
         transform-origin: center;
         pointer-events: none;
-      }
-
-      /* When we want the plane to move */
-      #plane.animating {
-        animation: gateToStartup 4s linear forwards;
-        animation-play-state: running;
-      }
-
-      /* Pause / resume control */
-      #plane.animating.paused {
-        animation-play-state: paused;
-      }
-
-      /* Straight line from (335,230) ➜ (233,215) */
-      @keyframes gateToStartup {
-        0% {
-          transform: translate(0px, 0px) rotate(0deg);
-        }
-        100% {
-          /* Δx = 233 - 335 = -102, Δy = 215 - 230 = -15 */
-          transform: translate(-102px, -15px) rotate(-8deg);
-        }
       }
 
       .upload {
@@ -398,9 +376,9 @@
       </aside>
 
       <div class="map-container">
-        <canvas id="mapCanvas" width="800" height="800"></canvas>
+        <canvas id="mapCanvas" width="1600" height="1600"></canvas>
         <!--<img src="Airport_Map_no_planes.svg" alt="Airport Map" />-->
-        <div id="plane" class="animating">✈️</div>
+        <div id="plane">✈️</div>
         <!--<img src="Airport_Map_no_planes.svg" alt="Airport Map" />-->
       </div>
     </main>
