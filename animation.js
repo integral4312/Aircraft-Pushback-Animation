@@ -22,8 +22,8 @@ export class Animator {
     this.segments = [];
 
     const points = pathGrid.map(([gx, gy]) => ({
-      x: gx * gridToCanvasFactor,
-      y: gy * gridToCanvasFactor,
+      x: (gx + 0.5) * gridToCanvasFactor,
+      y: (gy + 0.5) * gridToCanvasFactor,
     }));
 
     for (let i = 0; i < points.length - 1; i++) {
