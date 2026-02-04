@@ -41,7 +41,7 @@ export class PathHandler {
   }
 
   heuristic(a, b) {
-    return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+    return Math.sqrt((a.x - b.x)**2, (a.y - b.y)^2);
   }
 
   getNeighborNodes(node) {
@@ -51,6 +51,10 @@ export class PathHandler {
       [-1, 0],
       [0, 1],
       [0, -1],
+      [1, 1],
+      [-1, 1],
+      [-1, -1],
+      [1, -1]
     ];
 
     for (const [dx, dy] of directions) {
