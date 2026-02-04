@@ -256,14 +256,42 @@
         background: #0d1218;
       }
 
-      /* ✈️ Plane overlay at gate position */
-      #plane {
+      /* ✈️ Plane overlays */
+      .plane-icon {
         position: absolute;
         left: 0px;
         top: 0px;
-        font-size: 40px;
-        transform-origin: center;
+        width: 0;
+        height: 0;
         pointer-events: none;
+        z-index: 3;
+      }
+
+      .plane-glyph {
+        position: absolute;
+        left: 0;
+        top: 0;
+        font-size: 32px;
+        line-height: 1;
+        transform-origin: center center;
+        transform: translate(-50%, -50%) rotate(var(--heading, 0deg));
+      }
+
+      .plane-flight-number {
+        position: absolute;
+        left: 0;
+        top: 18px;
+        transform: translateX(-50%);
+        font-family: "Space Grotesk", system-ui, sans-serif;
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.5px;
+        color: #f4fbff;
+        background: rgba(10, 15, 20, 0.85);
+        border: 1px solid rgba(45, 242, 255, 0.35);
+        border-radius: 999px;
+        padding: 1px 6px;
+        white-space: nowrap;
       }
 
       .upload {
@@ -377,9 +405,18 @@
 
       <div class="map-container">
         <canvas id="mapCanvas" width="1600" height="1600"></canvas>
-        <!--<img src="Airport_Map_no_planes.svg" alt="Airport Map" />-->
-        <div id="plane">✈️</div>
-        <!--<img src="Airport_Map_no_planes.svg" alt="Airport Map" />-->
+        <div id="plane1" class="plane-icon"><span class="plane-glyph">✈️</span><span class="plane-flight-number">----</span></div>
+        <div id="plane2" class="plane-icon"><span class="plane-glyph">✈️</span><span class="plane-flight-number">----</span></div>
+        <div id="plane3" class="plane-icon"><span class="plane-glyph">✈️</span><span class="plane-flight-number">----</span></div>
+        <div id="plane4" class="plane-icon"><span class="plane-glyph">✈️</span><span class="plane-flight-number">----</span></div>
+        <div id="plane5" class="plane-icon"><span class="plane-glyph">✈️</span><span class="plane-flight-number">----</span></div>
+        <div id="plane6" class="plane-icon"><span class="plane-glyph">✈️</span><span class="plane-flight-number">----</span></div>
+        <div id="plane7" class="plane-icon"><span class="plane-glyph">✈️</span><span class="plane-flight-number">----</span></div>
+        <div id="plane8" class="plane-icon"><span class="plane-glyph">✈️</span><span class="plane-flight-number">----</span></div>
+        <div id="plane9" class="plane-icon"><span class="plane-glyph">✈️</span><span class="plane-flight-number">----</span></div>
+        <div id="plane10" class="plane-icon"><span class="plane-glyph">✈️</span><span class="plane-flight-number">----</span></div>
+        <div id="plane11" class="plane-icon"><span class="plane-glyph">✈️</span><span class="plane-flight-number">----</span></div>
+        <div id="plane12" class="plane-icon"><span class="plane-glyph">✈️</span><span class="plane-flight-number">----</span></div>
       </div>
     </main>
 

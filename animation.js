@@ -8,6 +8,7 @@ export class Animator {
     this.speed = 0;
     this.startTime = null;
     this.planeEl = null;
+    this.glyphEl = null;
   }
 
   startPath(planeEl, pathGrid, speedPixelsPerSec) {
@@ -16,6 +17,7 @@ export class Animator {
     }
 
     this.planeEl = planeEl;
+    this.glyphEl = planeEl.querySelector(".plane-glyph") || planeEl;
     this.speed = Math.max(1, speedPixelsPerSec || 1);
     this.startTime = null;
     this.totalLength = 0;
@@ -73,7 +75,10 @@ export class Animator {
         const angle = Math.atan2(segment.dy, segment.dx);
         this.planeEl.style.left = `${x}px`;
         this.planeEl.style.top = `${y}px`;
-        this.planeEl.style.transform = `rotate(${(angle * 180) / Math.PI}deg)`;
+        this.glyphEl.style.setProperty(
+          "--heading",
+          `${(angle * 180) / Math.PI}deg`
+        );
         break;
       }
       travelled += segment.length;

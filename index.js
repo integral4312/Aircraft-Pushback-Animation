@@ -6,7 +6,7 @@ import { Animator } from "./animation.js";
 const canvas = document.getElementById("mapCanvas");
 const ctx = canvas.getContext("2d");
 
-const plane = document.getElementById("plane");
+const planeElements = Array.from(document.querySelectorAll(".plane-icon"));
 const weatherStatus = document.getElementById("weatherStatus");
 const wxTemp = document.getElementById("wxTemp");
 const wxWind = document.getElementById("wxWind");
@@ -18,7 +18,15 @@ const grid = new Grid(300, canvas);
 export const gridToCanvasFactor = canvas.width / grid.size;
 
 // Animator class
-const animator = new Animator();
+const animators = planeElements.map((planeEl) => ({
+  planeEl,
+  animator: new Animator(),
+}));
+
+for (let i = 0; i < animators.length; i++) {
+  const glyph = animators[i].planeEl.querySelector(".plane-glyph");
+  if (glyph) glyph.style.filter = `hue-rotate(${(i * 27) % 360}deg)`;
+}
 
 // Load the airport map to the canvas
 const img = new Image();
@@ -63,9 +71,21 @@ const startupLocations = [
 ];
 
 const flights = [
+  // Existing baseline scenarios
   { flightNumber: "7142", stationTime: "12/10/25 8:00:00", start: 0, end: 0 },
-  /*{ flightNumber: "1452", stationTime: "12/10/25 8:00:00", start: 1, end: 1 },
-  { flightNumber: "6789", stationTime: "12/10/25 8:00:00", start: 1, end: 0 },*/
+  { flightNumber: "1452", stationTime: "12/10/25 8:00:00", start: 1, end: 1 },
+
+  // 10 additional mixed pushback/taxi scenarios
+  { flightNumber: "6789", stationTime: "12/10/25 8:03:00", start: 2, end: 2 },
+  { flightNumber: "2210", stationTime: "12/10/25 8:05:30", start: 3, end: 0 },
+  { flightNumber: "3307", stationTime: "12/10/25 8:08:00", start: 4, end: 3 },
+  { flightNumber: "4126", stationTime: "12/10/25 8:10:30", start: 5, end: 1 },
+  { flightNumber: "5094", stationTime: "12/10/25 8:13:00", start: 6, end: 4 },
+  { flightNumber: "6188", stationTime: "12/10/25 8:15:30", start: 8, end: 5 },
+  { flightNumber: "7021", stationTime: "12/10/25 8:18:00", start: 10, end: 2 },
+  { flightNumber: "8153", stationTime: "12/10/25 8:20:30", start: 13, end: 0 },
+  { flightNumber: "9047", stationTime: "12/10/25 8:23:00", start: 16, end: 3 },
+  { flightNumber: "9932", stationTime: "12/10/25 8:25:30", start: 20, end: 1 },
 ];
 
 let mouse = { x: 0, y: 0 };
@@ -259,7 +279,20 @@ function nearestNavigableNode(grid, x, y) {
 }
 
 function applyPathfinding(currentFlights) {
-  for (let flight of currentFlights) {
+  for (let i = 0; i < currentFlights.length; i++) {
+    const flight = currentFlights[i];
+    const slot = animators[i];
+
+    if (!slot || !slot.planeEl) {
+      console.warn("No plane icon available for flight.", flight.flightNumber);
+      continue;
+    }
+
+    const flightLabel = slot.planeEl.querySelector(".plane-flight-number");
+    if (flightLabel) {
+      flightLabel.textContent = flight.flightNumber;
+    }
+
     const pathFinder = new PathHandler(grid);
 
     const requestedStart =
@@ -286,7 +319,7 @@ function applyPathfinding(currentFlights) {
 
     if (!pathNodes || pathNodes.length < 2) {
       console.warn("No path returned from A*.", pathNodes);
-      return;
+      continue;
     }
 
     // ✅ Keep in GRID coords: [[x,y],...]
@@ -302,8 +335,7 @@ function applyPathfinding(currentFlights) {
       continue;
     }
 
-    animator.startPath(plane, pathGrid, 140);
-    break; // animate first flight only for now
+    slot.animator.startPath(slot.planeEl, pathGrid, 140);
   }
 }
 
@@ -345,7 +377,9 @@ canvas.addEventListener("click", (e) => {
 });
 
 function runAnimation(tStamp) {
-  animator.runAnimation(tStamp);
+  for (const slot of animators) {
+    slot.animator.runAnimation(tStamp);
+  }
   requestAnimationFrame(runAnimation);
 }
 requestAnimationFrame(runAnimation);
