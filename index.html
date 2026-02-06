@@ -111,6 +111,62 @@
         box-shadow: 0 10px 18px rgba(45, 242, 255, 0.25);
       }
 
+      .collision-warning {
+        display: none;
+        margin: 10px auto 0;
+        width: fit-content;
+        padding: 8px 14px;
+        border-radius: 999px;
+        font-weight: 700;
+        letter-spacing: 1px;
+        text-transform: uppercase;
+        background: rgba(210, 30, 30, 0.85);
+        border: 1px solid rgba(255, 145, 145, 0.8);
+        color: #fff;
+      }
+
+      .collision-warning.active {
+        display: block;
+        animation: warningBlink 0.8s step-end infinite;
+      }
+
+      .incursion-dot {
+        position: absolute;
+        width: 14px;
+        height: 14px;
+        margin-left: -7px;
+        margin-top: -7px;
+        border-radius: 50%;
+        background: #ff2f2f;
+        border: 2px solid rgba(255, 255, 255, 0.95);
+        box-shadow: 0 0 18px rgba(255, 40, 40, 0.9);
+        pointer-events: none;
+        z-index: 6;
+        animation: dotBlink 0.55s step-end infinite;
+      }
+
+      @keyframes warningBlink {
+        0%,
+        50% {
+          opacity: 1;
+        }
+        50.01%,
+        100% {
+          opacity: 0.2;
+        }
+      }
+
+      @keyframes dotBlink {
+        0%,
+        50% {
+          opacity: 1;
+        }
+        50.01%,
+        100% {
+          opacity: 0.1;
+        }
+      }
+
       .pause {
         background: linear-gradient(160deg, rgba(255, 224, 138, 0.4), rgba(255, 122, 89, 0.2));
       }
@@ -320,6 +376,37 @@
         border-top: 1px solid var(--stroke);
       }
 
+      .time-scale-bar {
+        position: relative;
+        z-index: 1;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        gap: 10px;
+        background: rgba(9, 14, 19, 0.85);
+        border-top: 1px solid var(--stroke);
+        border-bottom: 1px solid var(--stroke);
+        padding: 8px 10px;
+      }
+
+      .time-scale-arrow {
+        padding: 6px 10px;
+        min-width: 40px;
+      }
+
+      .time-scale-chip {
+        min-width: 64px;
+        text-align: center;
+        font-weight: 700;
+      }
+
+      .sim-time-chip {
+        min-width: 178px;
+        text-align: center;
+        font-family: "Space Grotesk", system-ui, sans-serif;
+        font-weight: 600;
+      }
+
       @media (max-width: 1024px) {
         .main {
           grid-template-columns: 1fr;
@@ -343,6 +430,7 @@
       <button class="reset">🔁 Reset</button>
       <button class="emergency">🚨 Emergency Stop</button>
     </div>
+    <div id="collisionWarning" class="collision-warning">Collision Warning</div>
 
     <main class="main">
       <div class="shape one"></div>
@@ -415,10 +503,15 @@
         <div id="plane8" class="plane-icon"><span class="plane-glyph">✈️</span><span class="plane-flight-number">----</span></div>
         <div id="plane9" class="plane-icon"><span class="plane-glyph">✈️</span><span class="plane-flight-number">----</span></div>
         <div id="plane10" class="plane-icon"><span class="plane-glyph">✈️</span><span class="plane-flight-number">----</span></div>
-        <div id="plane11" class="plane-icon"><span class="plane-glyph">✈️</span><span class="plane-flight-number">----</span></div>
-        <div id="plane12" class="plane-icon"><span class="plane-glyph">✈️</span><span class="plane-flight-number">----</span></div>
       </div>
     </main>
+
+    <div class="time-scale-bar">
+      <button id="timeScaleDown" class="time-scale-arrow">◀</button>
+      <div id="timeScaleValue" class="pill time-scale-chip">1x</div>
+      <button id="timeScaleUp" class="time-scale-arrow">▶</button>
+      <div id="simClockValue" class="pill sim-time-chip">--/--/-- --:--:--</div>
+    </div>
 
     <footer>ATC Console — Standby Mode</footer>
 

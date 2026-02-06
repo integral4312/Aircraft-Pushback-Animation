@@ -12,6 +12,16 @@ const wxTemp = document.getElementById("wxTemp");
 const wxWind = document.getElementById("wxWind");
 const wxHumidity = document.getElementById("wxHumidity");
 const wxPressure = document.getElementById("wxPressure");
+const mapContainer = document.querySelector(".map-container");
+const collisionWarning = document.getElementById("collisionWarning");
+const startBtn = document.querySelector(".start");
+const pauseBtn = document.querySelector(".pause");
+const resetBtn = document.querySelector(".reset");
+const emergencyBtn = document.querySelector(".emergency");
+const timeScaleDownBtn = document.getElementById("timeScaleDown");
+const timeScaleUpBtn = document.getElementById("timeScaleUp");
+const timeScaleValue = document.getElementById("timeScaleValue");
+const simClockValue = document.getElementById("simClockValue");
 
 // Array holding the grid of nodes for the algorithm
 const grid = new Grid(300, canvas);
@@ -21,11 +31,29 @@ export const gridToCanvasFactor = canvas.width / grid.size;
 const animators = planeElements.map((planeEl) => ({
   planeEl,
   animator: new Animator(),
+  flightNumber: null,
+  collisionStopped: false,
 }));
+
+let mapReady = false;
+let isPaused = false;
+const collisionPairs = new Set();
+const collisionDots = [];
+const COLLISION_DISTANCE_PX = 28;
+const TAXI_SPEED_KTS = 20;
+const KTS_TO_MPS = 0.514444;
+const TAXI_SPEED_PX_PER_SIM_SEC = metersToPixels(TAXI_SPEED_KTS * KTS_TO_MPS);
+const MAX_TIME_SCALE = 300;
+let timeScale = 1;
+let simClockMs = Number.NaN;
+let simClockLastTs = null;
+let flightSchedule = [];
+let simulationActive = false;
 
 for (let i = 0; i < animators.length; i++) {
   const glyph = animators[i].planeEl.querySelector(".plane-glyph");
   if (glyph) glyph.style.filter = `hue-rotate(${(i * 27) % 360}deg)`;
+  animators[i].planeEl.style.display = "none";
 }
 
 // Load the airport map to the canvas
@@ -86,6 +114,13 @@ const flights = [
   { flightNumber: "8153", stationTime: "12/10/25 8:20:30", start: 13, end: 0 },
   { flightNumber: "9047", stationTime: "12/10/25 8:23:00", start: 16, end: 3 },
   { flightNumber: "9932", stationTime: "12/10/25 8:25:30", start: 20, end: 1 },
+
+  // 5 additional scenarios
+  { flightNumber: "1064", stationTime: "12/10/25 8:28:00", start: 7, end: 4 },
+  { flightNumber: "2375", stationTime: "12/10/25 8:30:30", start: 9, end: 2 },
+  { flightNumber: "3481", stationTime: "12/10/25 8:33:00", start: 11, end: 5 },
+  { flightNumber: "4590", stationTime: "12/10/25 8:35:30", start: 14, end: 1 },
+  { flightNumber: "5702", stationTime: "12/10/25 8:38:00", start: 22, end: 0 },
 ];
 
 let mouse = { x: 0, y: 0 };
@@ -95,9 +130,7 @@ img.onload = () => {
 
   markTaxiwaysAsNavigable(grid, ctx);
   drawNavigableOverlay(grid, ctx);
-
-  // Auto-start after navigable tiles are computed from the map.
-  applyPathfinding(flights);
+  mapReady = true;
 };
 
 fetchWeatherAndMetar();
@@ -132,6 +165,150 @@ function toCardinal(deg) {
   const directions = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
   const idx = Math.round(((deg % 360) / 45)) % 8;
   return directions[idx];
+}
+
+function parseStationTime(stationTime) {
+  if (!stationTime || typeof stationTime !== "string") return null;
+  const [datePart, timePart = "00:00:00"] = stationTime.trim().split(/\s+/);
+  if (!datePart) return null;
+
+  const [monthRaw, dayRaw, yearRaw] = datePart.split("/").map((v) => Number(v));
+  const [hourRaw, minuteRaw, secondRaw] = timePart
+    .split(":")
+    .map((v) => Number(v));
+
+  if (
+    !Number.isFinite(monthRaw) ||
+    !Number.isFinite(dayRaw) ||
+    !Number.isFinite(yearRaw)
+  ) {
+    return null;
+  }
+
+  const year = yearRaw < 100 ? 2000 + yearRaw : yearRaw;
+  const hour = Number.isFinite(hourRaw) ? hourRaw : 0;
+  const minute = Number.isFinite(minuteRaw) ? minuteRaw : 0;
+  const second = Number.isFinite(secondRaw) ? secondRaw : 0;
+  return new Date(year, monthRaw - 1, dayRaw, hour, minute, second).getTime();
+}
+
+function formatSimClock(ms) {
+  if (!Number.isFinite(ms)) return "--/--/-- --:--:--";
+  const d = new Date(ms);
+  const pad = (v) => String(v).padStart(2, "0");
+  return `${pad(d.getMonth() + 1)}/${pad(d.getDate())}/${String(
+    d.getFullYear()
+  ).slice(-2)} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(
+    d.getSeconds()
+  )}`;
+}
+
+function updateTimeScaleUI() {
+  if (timeScaleValue) timeScaleValue.textContent = `${timeScale}x`;
+  if (simClockValue) simClockValue.textContent = formatSimClock(simClockMs);
+}
+
+function updateSimClock(tStamp) {
+  if (!simulationActive || isPaused) {
+    simClockLastTs = tStamp;
+    return;
+  }
+
+  if (simClockLastTs === null) {
+    simClockLastTs = tStamp;
+    return;
+  }
+
+  const deltaSeconds = Math.max(0, (tStamp - simClockLastTs) / 1000);
+  simClockMs += deltaSeconds * 1000 * timeScale;
+  simClockLastTs = tStamp;
+}
+
+function sqrDistancePointToSegment(px, py, ax, ay, bx, by) {
+  const abx = bx - ax;
+  const aby = by - ay;
+  const apx = px - ax;
+  const apy = py - ay;
+  const abLenSq = abx * abx + aby * aby;
+  if (abLenSq === 0) return apx * apx + apy * apy;
+  const t = Math.max(0, Math.min(1, (apx * abx + apy * aby) / abLenSq));
+  const cx = ax + abx * t;
+  const cy = ay + aby * t;
+  const dx = px - cx;
+  const dy = py - cy;
+  return dx * dx + dy * dy;
+}
+
+function segmentIntersectionPoint(segA, segB) {
+  const x1 = segA.ax;
+  const y1 = segA.ay;
+  const x2 = segA.bx;
+  const y2 = segA.by;
+  const x3 = segB.ax;
+  const y3 = segB.ay;
+  const x4 = segB.bx;
+  const y4 = segB.by;
+
+  const denominator = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4);
+  if (Math.abs(denominator) < 1e-9) return null;
+
+  const pre = x1 * y2 - y1 * x2;
+  const post = x3 * y4 - y3 * x4;
+  const px = (pre * (x3 - x4) - (x1 - x2) * post) / denominator;
+  const py = (pre * (y3 - y4) - (y1 - y2) * post) / denominator;
+
+  const within = (v, a, b) => v >= Math.min(a, b) - 1e-6 && v <= Math.max(a, b) + 1e-6;
+  if (
+    within(px, x1, x2) &&
+    within(py, y1, y2) &&
+    within(px, x3, x4) &&
+    within(py, y3, y4)
+  ) {
+    return { x: px, y: py };
+  }
+
+  return null;
+}
+
+function minDistanceBetweenSegments(segA, segB) {
+  const intersection = segmentIntersectionPoint(segA, segB);
+  if (intersection) {
+    return { distance: 0, point: intersection };
+  }
+
+  const d1 = sqrDistancePointToSegment(
+    segA.ax,
+    segA.ay,
+    segB.ax,
+    segB.ay,
+    segB.bx,
+    segB.by
+  );
+  const d2 = sqrDistancePointToSegment(
+    segA.bx,
+    segA.by,
+    segB.ax,
+    segB.ay,
+    segB.bx,
+    segB.by
+  );
+  const d3 = sqrDistancePointToSegment(
+    segB.ax,
+    segB.ay,
+    segA.ax,
+    segA.ay,
+    segA.bx,
+    segA.by
+  );
+  const d4 = sqrDistancePointToSegment(
+    segB.bx,
+    segB.by,
+    segA.ax,
+    segA.ay,
+    segA.bx,
+    segA.by
+  );
+  return { distance: Math.sqrt(Math.min(d1, d2, d3, d4)), point: null };
 }
 
 async function fetchWeatherAndMetar() {
@@ -278,8 +455,22 @@ function nearestNavigableNode(grid, x, y) {
   return null;
 }
 
-function applyPathfinding(currentFlights) {
-  for (let i = 0; i < currentFlights.length; i++) {
+function buildFlightSchedule(currentFlights) {
+  const schedule = [];
+  const flightCount = Math.min(currentFlights.length, animators.length);
+
+  if (currentFlights.length > animators.length) {
+    console.warn(
+      `Only ${animators.length} planes available; scheduling first ${animators.length} flights.`
+    );
+  }
+
+  for (const slot of animators) {
+    slot.flightNumber = null;
+    slot.collisionStopped = false;
+  }
+
+  for (let i = 0; i < flightCount; i++) {
     const flight = currentFlights[i];
     const slot = animators[i];
 
@@ -292,6 +483,7 @@ function applyPathfinding(currentFlights) {
     if (flightLabel) {
       flightLabel.textContent = flight.flightNumber;
     }
+    slot.flightNumber = flight.flightNumber;
 
     const pathFinder = new PathHandler(grid);
 
@@ -335,9 +527,210 @@ function applyPathfinding(currentFlights) {
       continue;
     }
 
-    slot.animator.startPath(slot.planeEl, pathGrid, 140);
+    const stationMs = parseStationTime(flight.stationTime);
+    if (stationMs === null) {
+      console.warn("Invalid station time; skipping flight.", flight);
+      continue;
+    }
+
+    slot.planeEl.style.display = "none";
+    schedule.push({
+      slot,
+      pathGrid,
+      stationMs,
+      started: false,
+    });
+  }
+
+  schedule.sort((a, b) => a.stationMs - b.stationMs);
+  return schedule;
+}
+
+function activateScheduledFlights() {
+  if (!simulationActive) return;
+  for (const entry of flightSchedule) {
+    if (entry.started || simClockMs < entry.stationMs) continue;
+    entry.slot.planeEl.style.display = "block";
+    entry.slot.animator.startPath(
+      entry.slot.planeEl,
+      entry.pathGrid,
+      TAXI_SPEED_PX_PER_SIM_SEC
+    );
+    entry.started = true;
   }
 }
+
+function stopAllAnimations() {
+  for (const slot of animators) {
+    slot.animator.stop();
+    slot.collisionStopped = false;
+    slot.flightNumber = null;
+    slot.planeEl.style.display = "none";
+    const flightLabel = slot.planeEl.querySelector(".plane-flight-number");
+    if (flightLabel) flightLabel.textContent = "----";
+  }
+  simulationActive = false;
+  flightSchedule = [];
+}
+
+function clearCollisionVisuals() {
+  collisionPairs.clear();
+  for (const dot of collisionDots) {
+    dot.remove();
+  }
+  collisionDots.length = 0;
+  if (collisionWarning) {
+    collisionWarning.classList.remove("active");
+    collisionWarning.textContent = "Collision Warning";
+  }
+}
+
+function raiseCollisionAlert(flightA, flightB, x, y) {
+  if (mapContainer) {
+    const dot = document.createElement("div");
+    dot.className = "incursion-dot";
+    dot.style.left = `${x}px`;
+    dot.style.top = `${y}px`;
+    mapContainer.appendChild(dot);
+    collisionDots.push(dot);
+  }
+
+  if (collisionWarning) {
+    collisionWarning.classList.add("active");
+    collisionWarning.textContent = `Collision Warning: ${flightA} / ${flightB}`;
+  }
+}
+
+function detectAndHandleCollisions(tStamp) {
+  const isVisible = (slot) => slot.planeEl.style.display !== "none";
+
+  for (let i = 0; i < animators.length; i++) {
+    const a = animators[i];
+    if (!isVisible(a)) continue;
+    const posA = a.animator.getPosition();
+    if (!posA) continue;
+
+    for (let j = i + 1; j < animators.length; j++) {
+      const b = animators[j];
+      if (!isVisible(b)) continue;
+      const posB = b.animator.getPosition();
+      if (!posB) continue;
+
+      const pairKey = `${i}-${j}`;
+      if (collisionPairs.has(pairKey)) continue;
+
+      const distance = Math.hypot(posA.x - posB.x, posA.y - posB.y);
+      const segA = a.animator.getMotionSegment();
+      const segB = b.animator.getMotionSegment();
+      const sweptResult =
+        segA && segB
+          ? minDistanceBetweenSegments(segA, segB)
+          : { distance, point: null };
+      const minDistance = Math.min(distance, sweptResult.distance);
+      if (minDistance > COLLISION_DISTANCE_PX) continue;
+
+      if (a.animator.isActive() && !a.collisionStopped) {
+        a.animator.pause(tStamp);
+        a.collisionStopped = true;
+      }
+      if (b.animator.isActive() && !b.collisionStopped) {
+        b.animator.pause(tStamp);
+        b.collisionStopped = true;
+      }
+      collisionPairs.add(pairKey);
+
+      const hitX = sweptResult.point ? sweptResult.point.x : (posA.x + posB.x) / 2;
+      const hitY = sweptResult.point ? sweptResult.point.y : (posA.y + posB.y) / 2;
+      raiseCollisionAlert(a.flightNumber || "Unknown", b.flightNumber || "Unknown", hitX, hitY);
+    }
+  }
+}
+
+function startAllFlights() {
+  if (!mapReady) {
+    console.warn("Map is still loading, please try Start again.");
+    return;
+  }
+  stopAllAnimations();
+  clearCollisionVisuals();
+  flightSchedule = buildFlightSchedule(flights);
+  if (flightSchedule.length === 0) {
+    console.warn("No valid flights available for simulation.");
+    updateTimeScaleUI();
+    return;
+  }
+
+  simClockMs = flightSchedule[0].stationMs;
+  simClockLastTs = performance.now();
+  simulationActive = true;
+  isPaused = false;
+  if (pauseBtn) pauseBtn.textContent = "⏸️ Pause";
+  updateTimeScaleUI();
+}
+
+if (startBtn) {
+  startBtn.addEventListener("click", () => {
+    startAllFlights();
+  });
+}
+
+if (pauseBtn) {
+  pauseBtn.addEventListener("click", () => {
+    const now = performance.now();
+    if (!isPaused) {
+      for (const slot of animators) {
+        if (slot.collisionStopped) continue;
+        slot.animator.pause(now);
+      }
+      isPaused = true;
+      simClockLastTs = now;
+      pauseBtn.textContent = "▶️ Resume";
+      return;
+    }
+
+    for (const slot of animators) {
+      if (slot.collisionStopped) continue;
+      slot.animator.resume(now);
+    }
+    isPaused = false;
+    simClockLastTs = now;
+    pauseBtn.textContent = "⏸️ Pause";
+  });
+}
+
+if (resetBtn) {
+  resetBtn.addEventListener("click", () => {
+    startAllFlights();
+  });
+}
+
+if (emergencyBtn) {
+  emergencyBtn.addEventListener("click", () => {
+    stopAllAnimations();
+    clearCollisionVisuals();
+    isPaused = false;
+    simClockMs = Number.NaN;
+    simClockLastTs = null;
+    if (pauseBtn) pauseBtn.textContent = "⏸️ Pause";
+    updateTimeScaleUI();
+  });
+}
+
+if (timeScaleDownBtn) {
+  timeScaleDownBtn.addEventListener("click", () => {
+    timeScale = Math.max(1, timeScale - 1);
+    updateTimeScaleUI();
+  });
+}
+
+if (timeScaleUpBtn) {
+  timeScaleUpBtn.addEventListener("click", () => {
+    timeScale = Math.min(MAX_TIME_SCALE, timeScale + 1);
+    updateTimeScaleUI();
+  });
+}
+
+updateTimeScaleUI();
 
 function drawMouseOverlay() {
   const boxWidth = 90;
@@ -377,9 +770,15 @@ canvas.addEventListener("click", (e) => {
 });
 
 function runAnimation(tStamp) {
+  updateSimClock(tStamp);
+  activateScheduledFlights();
+  detectAndHandleCollisions(tStamp);
+
   for (const slot of animators) {
-    slot.animator.runAnimation(tStamp);
+    slot.animator.runAnimation(tStamp, timeScale);
   }
+  detectAndHandleCollisions(tStamp);
+  updateTimeScaleUI();
   requestAnimationFrame(runAnimation);
 }
 requestAnimationFrame(runAnimation);
