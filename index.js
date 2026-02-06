@@ -24,7 +24,7 @@ const timeScaleValue = document.getElementById("timeScaleValue");
 const simClockValue = document.getElementById("simClockValue");
 
 // Array holding the grid of nodes for the algorithm
-const grid = new Grid(300, canvas);
+const grid = new Grid(1000, canvas);
 export const gridToCanvasFactor = canvas.width / grid.size;
 
 // Animator class
@@ -62,40 +62,40 @@ img.src = "./fll_final_copy2.jpg";
 
 // Get the coordinates (in grid coordinates, on the canvas) for the gates used by JetBlue
 const gateCoordinates = [
-  { id: "E1", x: 137, y: 93 },
-  { id: "E2", x: 130, y: 114 },
-  { id: "E4", x: 120, y: 105 },
-  { id: "E6", x: 108, y: 100 },
-  { id: "E8", x: 101, y: 94 },
-  { id: "E9", x: 95, y: 80 },
-  { id: "E10", x: 90, y: 87 },
+  { id: "E1", x: 457, y: 310 },
+  { id: "E2", x: 433, y: 380 },
+  { id: "E4", x: 400, y: 350 },
+  { id: "E6", x: 360, y: 333 },
+  { id: "E8", x: 337, y: 313 },
+  { id: "E9", x: 317, y: 267 },
+  { id: "E10", x: 300, y: 290 },
 
-  { id: "F1", x: 126, y: 135 },
-  { id: "F2", x: 137, y: 183 },
-  { id: "F3", x: 117, y: 154 },
-  { id: "F4", x: 123, y: 179 },
-  { id: "F5", x: 106, y: 154 },
-  { id: "F6", x: 113, y: 179 },
-  { id: "F7", x: 96, y: 157 },
-  { id: "F8", x: 103, y: 179 },
-  { id: "F9", x: 90, y: 161 },
-  { id: "F10", x: 93, y: 173 },
+  { id: "F1", x: 420, y: 450 },
+  { id: "F2", x: 457, y: 610 },
+  { id: "F3", x: 390, y: 513 },
+  { id: "F4", x: 410, y: 597 },
+  { id: "F5", x: 353, y: 513 },
+  { id: "F6", x: 377, y: 597 },
+  { id: "F7", x: 320, y: 523 },
+  { id: "F8", x: 343, y: 597 },
+  { id: "F9", x: 300, y: 537 },
+  { id: "F10", x: 310, y: 577 },
 
-  { id: "G5", x: 224, y: 234 },
-  { id: "G6", x: 212, y: 234 },
-  { id: "G7", x: 200, y: 236 },
-  { id: "G8", x: 191, y: 235 },
-  { id: "G9", x: 175, y: 235 },
-  { id: "G10", x: 164, y: 236 },
+  { id: "G5", x: 747, y: 780 },
+  { id: "G6", x: 707, y: 780 },
+  { id: "G7", x: 667, y: 787 },
+  { id: "G8", x: 637, y: 783 },
+  { id: "G9", x: 583, y: 783 },
+  { id: "G10", x: 547, y: 787 },
 ];
 
 const startupLocations = [
-  { id: "9", x: 66, y: 110 },
-  { id: "10", x: 67, y: 151 },
-  { id: "bravo", x: 88, y: 130 },
-  { id: "11", x: 127, y: 203 },
-  { id: "charlie", x: 62, y: 62 },
-  { id: "delta", x: 173, y: 278 },
+  { id: "9", x: 220, y: 367 },
+  { id: "10", x: 223, y: 503 },
+  { id: "bravo", x: 293, y: 433 },
+  { id: "11", x: 423, y: 677 },
+  { id: "charlie", x: 207, y: 207 },
+  { id: "delta", x: 577, y: 927 },
 ];
 
 const flights = [
@@ -163,7 +163,7 @@ function metersToPixels(meters) {
 function toCardinal(deg) {
   if (deg === null || deg === undefined || Number.isNaN(deg)) return "—";
   const directions = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
-  const idx = Math.round(((deg % 360) / 45)) % 8;
+  const idx = Math.round((deg % 360) / 45) % 8;
   return directions[idx];
 }
 
@@ -197,9 +197,9 @@ function formatSimClock(ms) {
   const d = new Date(ms);
   const pad = (v) => String(v).padStart(2, "0");
   return `${pad(d.getMonth() + 1)}/${pad(d.getDate())}/${String(
-    d.getFullYear()
+    d.getFullYear(),
   ).slice(-2)} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(
-    d.getSeconds()
+    d.getSeconds(),
   )}`;
 }
 
@@ -257,7 +257,8 @@ function segmentIntersectionPoint(segA, segB) {
   const px = (pre * (x3 - x4) - (x1 - x2) * post) / denominator;
   const py = (pre * (y3 - y4) - (y1 - y2) * post) / denominator;
 
-  const within = (v, a, b) => v >= Math.min(a, b) - 1e-6 && v <= Math.max(a, b) + 1e-6;
+  const within = (v, a, b) =>
+    v >= Math.min(a, b) - 1e-6 && v <= Math.max(a, b) + 1e-6;
   if (
     within(px, x1, x2) &&
     within(py, y1, y2) &&
@@ -282,7 +283,7 @@ function minDistanceBetweenSegments(segA, segB) {
     segB.ax,
     segB.ay,
     segB.bx,
-    segB.by
+    segB.by,
   );
   const d2 = sqrDistancePointToSegment(
     segA.bx,
@@ -290,7 +291,7 @@ function minDistanceBetweenSegments(segA, segB) {
     segB.ax,
     segB.ay,
     segB.bx,
-    segB.by
+    segB.by,
   );
   const d3 = sqrDistancePointToSegment(
     segB.ax,
@@ -298,7 +299,7 @@ function minDistanceBetweenSegments(segA, segB) {
     segA.ax,
     segA.ay,
     segA.bx,
-    segA.by
+    segA.by,
   );
   const d4 = sqrDistancePointToSegment(
     segB.bx,
@@ -306,7 +307,7 @@ function minDistanceBetweenSegments(segA, segB) {
     segA.ax,
     segA.ay,
     segA.bx,
-    segA.by
+    segA.by,
   );
   return { distance: Math.sqrt(Math.min(d1, d2, d3, d4)), point: null };
 }
@@ -390,7 +391,7 @@ function drawNavigableOverlay(grid, ctx) {
           gx * grid.tileSize,
           gy * grid.tileSize,
           grid.tileSize,
-          grid.tileSize
+          grid.tileSize,
         );
       }
     }
@@ -461,7 +462,7 @@ function buildFlightSchedule(currentFlights) {
 
   if (currentFlights.length > animators.length) {
     console.warn(
-      `Only ${animators.length} planes available; scheduling first ${animators.length} flights.`
+      `Only ${animators.length} planes available; scheduling first ${animators.length} flights.`,
     );
   }
 
@@ -498,7 +499,7 @@ function buildFlightSchedule(currentFlights) {
     const startNode = nearestNavigableNode(
       grid,
       requestedStart.x,
-      requestedStart.y
+      requestedStart.y,
     );
     const endNode = nearestNavigableNode(grid, requestedEnd.x, requestedEnd.y);
 
@@ -515,11 +516,13 @@ function buildFlightSchedule(currentFlights) {
     }
 
     // ✅ Keep in GRID coords: [[x,y],...]
-    const pathGrid =
-      Array.isArray(pathNodes[0]) ? pathNodes : pathNodes.map((n) => [n.x, n.y]);
+    const pathGrid = Array.isArray(pathNodes[0])
+      ? pathNodes
+      : pathNodes.map((n) => [n.x, n.y]);
 
     const hasNonNavigableStep = pathGrid.some(
-      ([x, y]) => !grid.grid[x] || !grid.grid[x][y] || !grid.grid[x][y].navigable
+      ([x, y]) =>
+        !grid.grid[x] || !grid.grid[x][y] || !grid.grid[x][y].navigable,
     );
 
     if (hasNonNavigableStep) {
@@ -554,7 +557,7 @@ function activateScheduledFlights() {
     entry.slot.animator.startPath(
       entry.slot.planeEl,
       entry.pathGrid,
-      TAXI_SPEED_PX_PER_SIM_SEC
+      TAXI_SPEED_PX_PER_SIM_SEC,
     );
     entry.started = true;
   }
@@ -639,9 +642,18 @@ function detectAndHandleCollisions(tStamp) {
       }
       collisionPairs.add(pairKey);
 
-      const hitX = sweptResult.point ? sweptResult.point.x : (posA.x + posB.x) / 2;
-      const hitY = sweptResult.point ? sweptResult.point.y : (posA.y + posB.y) / 2;
-      raiseCollisionAlert(a.flightNumber || "Unknown", b.flightNumber || "Unknown", hitX, hitY);
+      const hitX = sweptResult.point
+        ? sweptResult.point.x
+        : (posA.x + posB.x) / 2;
+      const hitY = sweptResult.point
+        ? sweptResult.point.y
+        : (posA.y + posB.y) / 2;
+      raiseCollisionAlert(
+        a.flightNumber || "Unknown",
+        b.flightNumber || "Unknown",
+        hitX,
+        hitY,
+      );
     }
   }
 }
@@ -748,12 +760,12 @@ function drawMouseOverlay() {
   ctx.fillText(
     `x: ${mouse.x.toFixed(0)}`,
     mouse.x + offset + 5,
-    mouse.y + offset + 15
+    mouse.y + offset + 15,
   );
   ctx.fillText(
     `y: ${mouse.y.toFixed(0)}`,
     mouse.x + offset + 5,
-    mouse.y + offset + 28
+    mouse.y + offset + 28,
   );
 }
 
@@ -765,7 +777,7 @@ canvas.addEventListener("click", (e) => {
 
   console.log(
     Math.round(mouse.x / gridToCanvasFactor),
-    Math.round(mouse.y / gridToCanvasFactor)
+    Math.round(mouse.y / gridToCanvasFactor),
   );
 });
 
