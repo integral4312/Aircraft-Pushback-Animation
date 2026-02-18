@@ -55,11 +55,20 @@ export class Animator {
     this.currentY = points[0].y;
     this.prevX = points[0].x;
     this.prevY = points[0].y;
+
+    if (this.segments.length > 0) {
+      const first = this.segments[0];
+      const angle = Math.atan2(first.dy, first.dx);
+      this.glyphEl.style.setProperty(
+        "--heading",
+        `${(angle * 180) / Math.PI}deg`
+      );
+    }
   }
 
   runAnimation(tStamp, timeScale = 1) {
     if (!this.activePath || this.totalLength === 0 || this.isPaused) {
-      return;
+      return false;
     }
 
     if (this.lastTStamp === null) {
@@ -79,7 +88,7 @@ export class Animator {
       this.currentX = last.x;
       this.currentY = last.y;
       this.activePath = null;
-      return;
+      return true;
     }
 
     let travelled = 0;
@@ -102,6 +111,7 @@ export class Animator {
       }
       travelled += segment.length;
     }
+    return false;
   }
 
   pause(tStamp) {
