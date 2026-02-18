@@ -18,6 +18,7 @@ const startBtn = document.querySelector(".start");
 const pauseBtn = document.querySelector(".pause");
 const resetBtn = document.querySelector(".reset");
 const emergencyBtn = document.querySelector(".emergency");
+const pushbackQueueValue = document.getElementById("pushbackQueueValue");
 const timeScaleDownBtn = document.getElementById("timeScaleDown");
 const timeScaleUpBtn = document.getElementById("timeScaleUp");
 const timeScaleValue = document.getElementById("timeScaleValue");
@@ -33,6 +34,10 @@ const animators = planeElements.map((planeEl) => ({
   animator: new Animator(),
   flightNumber: null,
   collisionStopped: false,
+  fadeOutStartMs: null,
+  fadeOutEndMs: null,
+  noFade: false,
+  holdForSeparation: false,
 }));
 
 let mapReady = false;
@@ -43,17 +48,64 @@ const COLLISION_DISTANCE_PX = 28;
 const TAXI_SPEED_KTS = 20;
 const KTS_TO_MPS = 0.514444;
 const TAXI_SPEED_PX_PER_SIM_SEC = metersToPixels(TAXI_SPEED_KTS * KTS_TO_MPS);
+const PATH_RESERVATION_GUARD_MS = 15 * 1000;
+const STARTUP_SEARCH_SPREAD = 6;
+const SPATIAL_SAMPLE_STEP_PX = Math.max(4, COLLISION_DISTANCE_PX / 2);
+const PROXIMITY_BUFFER_PX = COLLISION_DISTANCE_PX * 2;
+const STARTUP_OCCUPANCY_BUFFER_MS = 45 * 1000;
 const MAX_TIME_SCALE = 300;
 let timeScale = 1;
 let simClockMs = Number.NaN;
 let simClockLastTs = null;
 let flightSchedule = [];
 let simulationActive = false;
+const FADE_DELAY_MIN_MS = 2 * 60 * 1000;
+const FADE_DELAY_MAX_MS = 3 * 60 * 1000;
+const FADE_DURATION_MS = 15 * 1000;
 
 for (let i = 0; i < animators.length; i++) {
   const glyph = animators[i].planeEl.querySelector(".plane-glyph");
   if (glyph) glyph.style.filter = `hue-rotate(${(i * 27) % 360}deg)`;
   animators[i].planeEl.style.display = "none";
+  animators[i].planeEl.style.opacity = "1";
+  animators[i].noFade = false;
+  animators[i].holdForSeparation = false;
+}
+
+function styleAnimatorSlot(slot, index) {
+  const glyph = slot.planeEl.querySelector(".plane-glyph");
+  if (glyph) glyph.style.filter = `hue-rotate(${(index * 27) % 360}deg)`;
+  slot.planeEl.style.display = "none";
+  slot.planeEl.style.opacity = "1";
+  slot.noFade = false;
+  slot.holdForSeparation = false;
+  const flightLabel = slot.planeEl.querySelector(".plane-flight-number");
+  if (flightLabel) flightLabel.textContent = "----";
+}
+
+function ensureAnimatorCapacity(requiredCount) {
+  if (animators.length >= requiredCount) return;
+  if (!mapContainer || planeElements.length === 0) return;
+
+  const template = planeElements[0];
+  while (animators.length < requiredCount) {
+    const clone = template.cloneNode(true);
+    clone.id = `planeAuto${animators.length + 1}`;
+    mapContainer.appendChild(clone);
+
+    const slot = {
+      planeEl: clone,
+      animator: new Animator(),
+      flightNumber: null,
+      collisionStopped: false,
+      fadeOutStartMs: null,
+      fadeOutEndMs: null,
+      noFade: false,
+      holdForSeparation: false,
+    };
+    styleAnimatorSlot(slot, animators.length);
+    animators.push(slot);
+  }
 }
 
 // Load the airport map to the canvas
@@ -130,6 +182,7 @@ img.onload = () => {
 
   markTaxiwaysAsNavigable(grid, ctx);
   drawNavigableOverlay(grid, ctx);
+  drawGateLabels();
   mapReady = true;
 };
 
@@ -143,7 +196,8 @@ async function main() {
     return;
   }
 
-  const data = await flightData;
+  await dataReady;
+  return flightData;
 }
 
 // Gets the current time in EST (New_York/America) in the form HH:MM:SS
@@ -168,28 +222,54 @@ function toCardinal(deg) {
 }
 
 function parseStationTime(stationTime) {
+  if (stationTime instanceof Date && Number.isFinite(stationTime.getTime())) {
+    return stationTime.getTime();
+  }
+  if (typeof stationTime === "number" && Number.isFinite(stationTime)) {
+    return stationTime;
+  }
   if (!stationTime || typeof stationTime !== "string") return null;
-  const [datePart, timePart = "00:00:00"] = stationTime.trim().split(/\s+/);
-  if (!datePart) return null;
 
-  const [monthRaw, dayRaw, yearRaw] = datePart.split("/").map((v) => Number(v));
-  const [hourRaw, minuteRaw, secondRaw] = timePart
-    .split(":")
-    .map((v) => Number(v));
+  const directParse = Date.parse(stationTime);
+  if (Number.isFinite(directParse)) return directParse;
+
+  const match = stationTime
+    .trim()
+    .match(
+      /^(\d{1,2})\/(\d{1,2})\/(\d{2,4})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)?$/i,
+    );
+  if (!match) return null;
+
+  const monthRaw = Number(match[1]);
+  const dayRaw = Number(match[2]);
+  const yearRaw = Number(match[3]);
+  let hourRaw = Number(match[4]);
+  const minuteRaw = Number(match[5]);
+  const secondRaw = match[6] ? Number(match[6]) : 0;
+  const meridiem = (match[7] || "").toUpperCase();
 
   if (
     !Number.isFinite(monthRaw) ||
     !Number.isFinite(dayRaw) ||
-    !Number.isFinite(yearRaw)
+    !Number.isFinite(yearRaw) ||
+    !Number.isFinite(hourRaw) ||
+    !Number.isFinite(minuteRaw) ||
+    !Number.isFinite(secondRaw)
   ) {
     return null;
   }
 
+  if (meridiem === "PM" && hourRaw < 12) hourRaw += 12;
+  if (meridiem === "AM" && hourRaw === 12) hourRaw = 0;
   const year = yearRaw < 100 ? 2000 + yearRaw : yearRaw;
-  const hour = Number.isFinite(hourRaw) ? hourRaw : 0;
-  const minute = Number.isFinite(minuteRaw) ? minuteRaw : 0;
-  const second = Number.isFinite(secondRaw) ? secondRaw : 0;
-  return new Date(year, monthRaw - 1, dayRaw, hour, minute, second).getTime();
+  return new Date(
+    year,
+    monthRaw - 1,
+    dayRaw,
+    hourRaw,
+    minuteRaw,
+    secondRaw,
+  ).getTime();
 }
 
 function formatSimClock(ms) {
@@ -206,6 +286,21 @@ function formatSimClock(ms) {
 function updateTimeScaleUI() {
   if (timeScaleValue) timeScaleValue.textContent = `${timeScale}x`;
   if (simClockValue) simClockValue.textContent = formatSimClock(simClockMs);
+  updatePushbackQueue();
+}
+
+function updatePushbackQueue() {
+  if (!pushbackQueueValue) return;
+  if (!simulationActive || flightSchedule.length === 0) {
+    pushbackQueueValue.textContent = "0 Flights";
+    return;
+  }
+  const queued = flightSchedule.filter((entry) => {
+    if (entry.started) return false;
+    if (!Number.isFinite(simClockMs)) return true;
+    return simClockMs <= entry.stationMs;
+  }).length;
+  pushbackQueueValue.textContent = `${queued} Flight${queued === 1 ? "" : "s"}`;
 }
 
 function updateSimClock(tStamp) {
@@ -400,6 +495,65 @@ function drawNavigableOverlay(grid, ctx) {
   ctx.restore();
 }
 
+function gateLabelOffset(id) {
+  if (id.startsWith("E")) return { dx: -22, dy: -26 };
+  if (id.startsWith("F")) return { dx: -20, dy: -22 };
+  if (id.startsWith("G")) return { dx: 18, dy: -20 };
+  return { dx: -18, dy: -18 };
+}
+
+function drawRoundedRect(ctx, x, y, width, height, radius) {
+  const r = Math.min(radius, width / 2, height / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + width - r, y);
+  ctx.quadraticCurveTo(x + width, y, x + width, y + r);
+  ctx.lineTo(x + width, y + height - r);
+  ctx.quadraticCurveTo(x + width, y + height, x + width - r, y + height);
+  ctx.lineTo(x + r, y + height);
+  ctx.quadraticCurveTo(x, y + height, x, y + height - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
+
+function drawGateLabels() {
+  ctx.save();
+  ctx.font = '12px "Space Grotesk", system-ui, sans-serif';
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillStyle = "#ffffff";
+  ctx.strokeStyle = "rgba(0, 0, 0, 0.7)";
+  ctx.lineWidth = 1;
+  const paddingX = 6;
+  const paddingY = 3;
+  const radius = 6;
+
+  for (const gate of gateCoordinates) {
+    const offset = gateLabelOffset(gate.id);
+    const x = (gate.x + 0.5) * gridToCanvasFactor + offset.dx;
+    const y = (gate.y + 0.5) * gridToCanvasFactor + offset.dy;
+    const textWidth = ctx.measureText(gate.id).width;
+    const boxWidth = textWidth + paddingX * 2;
+    const boxHeight = 14 + paddingY * 2;
+    drawRoundedRect(
+      ctx,
+      x - boxWidth / 2,
+      y - boxHeight / 2,
+      boxWidth,
+      boxHeight,
+      radius
+    );
+    ctx.fillStyle = "rgba(0, 0, 0, 0.8)";
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = "#ffffff";
+    ctx.fillText(gate.id, x, y);
+  }
+
+  ctx.restore();
+}
+
 function nearestNavigableNode(grid, x, y) {
   const maxRadius = grid.size;
   const clampedX = Math.max(0, Math.min(grid.size - 1, x));
@@ -456,23 +610,482 @@ function nearestNavigableNode(grid, x, y) {
   return null;
 }
 
+function overlap(aStart, aEnd, bStart, bEnd) {
+  return aStart < bEnd && bStart < aEnd;
+}
+
+function nodeKey(x, y) {
+  return `${x},${y}`;
+}
+
+function edgeKey(a, b) {
+  return `${a[0]},${a[1]}->${b[0]},${b[1]}`;
+}
+
+function reversedEdgeKey(a, b) {
+  return `${b[0]},${b[1]}->${a[0]},${a[1]}`;
+}
+
+function stepDurationMs(a, b) {
+  const dx = b[0] - a[0];
+  const dy = b[1] - a[1];
+  const distancePx = Math.hypot(dx, dy) * gridToCanvasFactor;
+  const seconds = distancePx / TAXI_SPEED_PX_PER_SIM_SEC;
+  return Math.max(500, Math.round(seconds * 1000));
+}
+
+function computePathOccupancy(pathGrid, startMs) {
+  const nodeWindows = [];
+  const edgeWindows = [];
+  const spatialWindows = [];
+  let t = startMs;
+
+  for (let i = 0; i < pathGrid.length; i++) {
+    const point = pathGrid[i];
+    const nodeWindow = {
+      gx: point[0],
+      gy: point[1],
+      x: point[0] * gridToCanvasFactor,
+      y: point[1] * gridToCanvasFactor,
+      key: nodeKey(point[0], point[1]),
+      start: t - PATH_RESERVATION_GUARD_MS,
+      end: t + PATH_RESERVATION_GUARD_MS,
+    };
+    nodeWindows.push(nodeWindow);
+    spatialWindows.push({
+      x: nodeWindow.x,
+      y: nodeWindow.y,
+      start: nodeWindow.start,
+      end: nodeWindow.end,
+    });
+
+    if (i >= pathGrid.length - 1) continue;
+    const next = pathGrid[i + 1];
+    const dt = stepDurationMs(point, next);
+    const dx = (next[0] - point[0]) * gridToCanvasFactor;
+    const dy = (next[1] - point[1]) * gridToCanvasFactor;
+    const segmentDistancePx = Math.hypot(dx, dy);
+    const sampleCount = Math.max(
+      1,
+      Math.ceil(segmentDistancePx / SPATIAL_SAMPLE_STEP_PX),
+    );
+
+    edgeWindows.push({
+      key: edgeKey(point, next),
+      reverseKey: reversedEdgeKey(point, next),
+      start: t - PATH_RESERVATION_GUARD_MS,
+      end: t + dt + PATH_RESERVATION_GUARD_MS,
+    });
+
+    for (let sample = 1; sample <= sampleCount; sample++) {
+      const alpha = sample / sampleCount;
+      spatialWindows.push({
+        x: point[0] * gridToCanvasFactor + dx * alpha,
+        y: point[1] * gridToCanvasFactor + dy * alpha,
+        start: t + dt * alpha - PATH_RESERVATION_GUARD_MS,
+        end: t + dt * alpha + PATH_RESERVATION_GUARD_MS,
+      });
+    }
+    t += dt;
+  }
+
+  return {
+    nodeWindows,
+    edgeWindows,
+    spatialWindows,
+    durationMs: Math.max(0, t - startMs),
+  };
+}
+
+function findEarliestConflictFreeStartMs(
+  pathGrid,
+  desiredStartMs,
+  nodeReservations,
+  edgeReservations,
+  spatialReservations,
+) {
+  let candidateStartMs = desiredStartMs;
+
+  for (let attempts = 0; attempts < 300; attempts++) {
+    const occupancy = computePathOccupancy(pathGrid, candidateStartMs);
+    let bumpedStartMs = candidateStartMs;
+    let hasConflict = false;
+
+    for (const window of occupancy.nodeWindows) {
+      const reservations = nodeReservations.get(window.key);
+      if (!reservations) continue;
+      for (const existing of reservations) {
+        if (!overlap(window.start, window.end, existing.start, existing.end))
+          continue;
+        hasConflict = true;
+        bumpedStartMs = Math.max(
+          bumpedStartMs,
+          existing.end + PATH_RESERVATION_GUARD_MS,
+        );
+      }
+    }
+
+    for (const window of occupancy.spatialWindows) {
+      for (const existing of spatialReservations) {
+        if (!overlap(window.start, window.end, existing.start, existing.end))
+          continue;
+        const dx = window.x - existing.x;
+        const dy = window.y - existing.y;
+        if (Math.hypot(dx, dy) > COLLISION_DISTANCE_PX) continue;
+        hasConflict = true;
+        bumpedStartMs = Math.max(
+          bumpedStartMs,
+          existing.end + PATH_RESERVATION_GUARD_MS,
+        );
+      }
+    }
+
+    for (const window of occupancy.edgeWindows) {
+      const forward = edgeReservations.get(window.key) || [];
+      const reverse = edgeReservations.get(window.reverseKey) || [];
+      for (const existing of forward) {
+        if (!overlap(window.start, window.end, existing.start, existing.end))
+          continue;
+        hasConflict = true;
+        bumpedStartMs = Math.max(
+          bumpedStartMs,
+          existing.end + PATH_RESERVATION_GUARD_MS,
+        );
+      }
+      for (const existing of reverse) {
+        if (!overlap(window.start, window.end, existing.start, existing.end))
+          continue;
+        hasConflict = true;
+        bumpedStartMs = Math.max(
+          bumpedStartMs,
+          existing.end + PATH_RESERVATION_GUARD_MS,
+        );
+      }
+    }
+
+    if (!hasConflict) {
+      return { startMs: candidateStartMs, occupancy };
+    }
+
+    if (bumpedStartMs <= candidateStartMs) bumpedStartMs = candidateStartMs + 1000;
+    candidateStartMs = bumpedStartMs;
+  }
+
+  return null;
+}
+
+function estimateProximityPenalty(occupancy, spatialReservations) {
+  let penalty = 0;
+  for (const window of occupancy.spatialWindows) {
+    for (const existing of spatialReservations) {
+      if (!overlap(window.start, window.end, existing.start, existing.end))
+        continue;
+      const distance = Math.hypot(window.x - existing.x, window.y - existing.y);
+      if (distance >= PROXIMITY_BUFFER_PX) continue;
+      penalty += PROXIMITY_BUFFER_PX - distance;
+    }
+  }
+  return penalty;
+}
+
+function reservePath(
+  occupancy,
+  nodeReservations,
+  edgeReservations,
+  spatialReservations,
+) {
+  for (const window of occupancy.nodeWindows) {
+    if (!nodeReservations.has(window.key)) nodeReservations.set(window.key, []);
+    nodeReservations.get(window.key).push({
+      start: window.start,
+      end: window.end,
+    });
+  }
+
+  for (const window of occupancy.spatialWindows) {
+    spatialReservations.push({
+      x: window.x,
+      y: window.y,
+      start: window.start,
+      end: window.end,
+    });
+  }
+
+  for (const window of occupancy.edgeWindows) {
+    if (!edgeReservations.has(window.key)) edgeReservations.set(window.key, []);
+    edgeReservations.get(window.key).push({
+      start: window.start,
+      end: window.end,
+    });
+  }
+}
+
+function buildStartupCandidates(preferredIndex, count) {
+  if (!Number.isInteger(preferredIndex) || preferredIndex < 0 || preferredIndex >= count) {
+    return Array.from({ length: count }, (_, i) => i);
+  }
+
+  const result = [preferredIndex];
+  for (let offset = 1; offset <= STARTUP_SEARCH_SPREAD; offset++) {
+    const low = preferredIndex - offset;
+    const high = preferredIndex + offset;
+    if (low >= 0) result.push(low);
+    if (high < count) result.push(high);
+  }
+
+  for (let i = 0; i < count; i++) {
+    if (!result.includes(i)) result.push(i);
+  }
+
+  return result;
+}
+
+function estimatePathDurationMs(pathGrid) {
+  if (!Array.isArray(pathGrid) || pathGrid.length < 2) return 0;
+  let duration = 0;
+  for (let i = 0; i < pathGrid.length - 1; i++) {
+    duration += stepDurationMs(pathGrid[i], pathGrid[i + 1]);
+  }
+  return duration;
+}
+
+function buildPathFromGateToStartup(gateIndex, startupIndex) {
+  const gate = gateCoordinates[gateIndex];
+  const startup = startupLocations[startupIndex];
+  if (!gate || !startup) return null;
+
+  const requestedStart = grid.grid[gate.x][gate.y];
+  const requestedEnd = grid.grid[startup.x][startup.y];
+  if (!requestedStart || !requestedEnd) return null;
+
+  const startNode = nearestNavigableNode(grid, requestedStart.x, requestedStart.y);
+  const endNode = nearestNavigableNode(grid, requestedEnd.x, requestedEnd.y);
+  if (!startNode || !endNode) return null;
+
+  const pathFinder = new PathHandler(grid);
+  const pathNodes = pathFinder.aStar(startNode, endNode);
+  if (!pathNodes || pathNodes.length < 2) return null;
+
+  const pathGrid = Array.isArray(pathNodes[0])
+    ? pathNodes
+    : pathNodes.map((n) => [n.x, n.y]);
+
+  const hasNonNavigableStep = pathGrid.some(
+    ([x, y]) => !grid.grid[x] || !grid.grid[x][y] || !grid.grid[x][y].navigable,
+  );
+  if (hasNonNavigableStep) return null;
+
+  return pathGrid;
+}
+
+function pathGridToCanvasSegments(pathGrid) {
+  const segments = [];
+  for (let i = 0; i < pathGrid.length - 1; i++) {
+    const a = pathGrid[i];
+    const b = pathGrid[i + 1];
+    segments.push({
+      ax: (a[0] + 0.5) * gridToCanvasFactor,
+      ay: (a[1] + 0.5) * gridToCanvasFactor,
+      bx: (b[0] + 0.5) * gridToCanvasFactor,
+      by: (b[1] + 0.5) * gridToCanvasFactor,
+    });
+  }
+  return segments;
+}
+
+function minDistancePointToPath(px, py, segments) {
+  if (!segments || segments.length === 0) return Number.POSITIVE_INFINITY;
+  let minSq = Number.POSITIVE_INFINITY;
+  for (const seg of segments) {
+    const dSq = sqrDistancePointToSegment(px, py, seg.ax, seg.ay, seg.bx, seg.by);
+    if (dSq < minSq) minSq = dSq;
+  }
+  return Math.sqrt(minSq);
+}
+
+function parseElementPixel(value) {
+  if (typeof value !== "string") return Number.NaN;
+  const parsed = Number.parseFloat(value.replace("px", ""));
+  return Number.isFinite(parsed) ? parsed : Number.NaN;
+}
+
+function planePositionFromSlot(slot) {
+  const pos = slot.animator.getPosition();
+  if (pos) return pos;
+
+  const left = parseElementPixel(slot.planeEl.style.left);
+  const top = parseElementPixel(slot.planeEl.style.top);
+  if (Number.isFinite(left) && Number.isFinite(top)) {
+    return { x: left, y: top };
+  }
+  return null;
+}
+
+function remainingTrafficSegments(slot) {
+  const animator = slot.animator;
+  if (!animator || !animator.isActive()) return [];
+  if (!Array.isArray(animator.segments) || animator.segments.length === 0) return [];
+
+  const pos = planePositionFromSlot(slot);
+  if (!pos) return [];
+
+  const distanceTravelled = Number.isFinite(animator.distanceTravelled)
+    ? animator.distanceTravelled
+    : 0;
+  let traversed = 0;
+  let activeSegIndex = animator.segments.length - 1;
+
+  for (let i = 0; i < animator.segments.length; i++) {
+    const seg = animator.segments[i];
+    if (traversed + seg.length >= distanceTravelled) {
+      activeSegIndex = i;
+      break;
+    }
+    traversed += seg.length;
+  }
+
+  const remaining = [];
+  const activeSeg = animator.segments[activeSegIndex];
+  if (activeSeg) {
+    remaining.push({
+      ax: pos.x,
+      ay: pos.y,
+      bx: activeSeg.b.x,
+      by: activeSeg.b.y,
+    });
+  }
+
+  for (let i = activeSegIndex + 1; i < animator.segments.length; i++) {
+    const seg = animator.segments[i];
+    remaining.push({
+      ax: seg.a.x,
+      ay: seg.a.y,
+      bx: seg.b.x,
+      by: seg.b.y,
+    });
+  }
+
+  return remaining.filter((seg) => {
+    const dx = seg.bx - seg.ax;
+    const dy = seg.by - seg.ay;
+    return Math.hypot(dx, dy) > 1e-3;
+  });
+}
+
+function pathHasTrafficConflict(pathGrid, skipSlot) {
+  const candidateSegments = pathGridToCanvasSegments(pathGrid);
+  if (candidateSegments.length === 0) return true;
+
+  for (const slot of animators) {
+    if (slot === skipSlot) continue;
+    if (slot.planeEl.style.display === "none") continue;
+
+    const pos = planePositionFromSlot(slot);
+    if (pos) {
+      const pathDistance = minDistancePointToPath(pos.x, pos.y, candidateSegments);
+      if (pathDistance <= COLLISION_DISTANCE_PX * 1.6) {
+        return true;
+      }
+    }
+
+    const trafficSeg = slot.animator.getMotionSegment();
+    if (!trafficSeg) continue;
+    for (const candidateSeg of candidateSegments) {
+      const swept = minDistanceBetweenSegments(trafficSeg, candidateSeg);
+      if (swept.distance <= COLLISION_DISTANCE_PX * 1.3) {
+        return true;
+      }
+    }
+
+    const remainingSegments = remainingTrafficSegments(slot);
+    for (const candidateSeg of candidateSegments) {
+      for (const trafficSegment of remainingSegments) {
+        const swept = minDistanceBetweenSegments(trafficSegment, candidateSeg);
+        if (swept.distance <= COLLISION_DISTANCE_PX * 1.7) {
+          return true;
+        }
+      }
+    }
+  }
+
+  return false;
+}
+
+function startupReleaseTimeForEntry(entry) {
+  if (!entry.started) return Number.NEGATIVE_INFINITY;
+  if (!Number.isFinite(entry.startupReleaseMs)) return Number.POSITIVE_INFINITY;
+  return entry.startupReleaseMs;
+}
+
+function isStartupOccupiedAtTime(startupIndex, simMs, skipEntry = null) {
+  for (const other of flightSchedule) {
+    if (other === skipEntry) continue;
+    if (!other.started) continue;
+    if (other.assignedStartupIndex !== startupIndex) continue;
+    if (simMs < startupReleaseTimeForEntry(other)) return true;
+  }
+  return false;
+}
+
+function resolveDispatchPlan(entry, simMs) {
+  const candidates = buildStartupCandidates(
+    entry.preferredStartupIndex,
+    startupLocations.length,
+  );
+
+  let bestPlan = null;
+
+  for (const startupIndex of candidates) {
+    const pathGrid = buildPathFromGateToStartup(entry.gateIndex, startupIndex);
+    if (!pathGrid) continue;
+    if (isStartupOccupiedAtTime(startupIndex, simMs, entry)) continue;
+    if (pathHasTrafficConflict(pathGrid, entry.slot)) continue;
+
+    const score =
+      estimatePathDurationMs(pathGrid) +
+      Math.abs(startupIndex - entry.preferredStartupIndex) * 1000;
+    if (!bestPlan || score < bestPlan.score) {
+      bestPlan = {
+        score,
+        startupIndex,
+        pathGrid,
+      };
+    }
+  }
+
+  if (!bestPlan) return null;
+  return {
+    startupIndex: bestPlan.startupIndex,
+    pathGrid: bestPlan.pathGrid,
+    dispatchMs: simMs,
+  };
+}
+
 function buildFlightSchedule(currentFlights) {
   const schedule = [];
-  const flightCount = Math.min(currentFlights.length, animators.length);
-
-  if (currentFlights.length > animators.length) {
-    console.warn(
-      `Only ${animators.length} planes available; scheduling first ${animators.length} flights.`,
-    );
-  }
+  const flightCount = currentFlights.length;
 
   for (const slot of animators) {
     slot.flightNumber = null;
     slot.collisionStopped = false;
+    slot.fadeOutStartMs = null;
+    slot.fadeOutEndMs = null;
+    slot.noFade = false;
+    slot.holdForSeparation = false;
   }
 
-  for (let i = 0; i < flightCount; i++) {
-    const flight = currentFlights[i];
+  const sortedFlights = currentFlights
+    .slice(0, flightCount)
+    .map((flight) => ({
+      flight,
+      stationMs: parseStationTime(flight.stationTime),
+    }))
+    .filter((entry) => entry.stationMs !== null)
+    .sort((a, b) => a.stationMs - b.stationMs);
+
+  for (let i = 0; i < sortedFlights.length; i++) {
+    const flight = sortedFlights[i].flight;
+    const desiredStationMs = sortedFlights[i].stationMs;
     const slot = animators[i];
 
     if (!slot || !slot.planeEl) {
@@ -485,62 +1098,26 @@ function buildFlightSchedule(currentFlights) {
       flightLabel.textContent = flight.flightNumber;
     }
     slot.flightNumber = flight.flightNumber;
-
-    const pathFinder = new PathHandler(grid);
-
-    const requestedStart =
-      grid.grid[gateCoordinates[flight.start].x][
-        gateCoordinates[flight.start].y
-      ];
-
-    const requestedEnd =
-      grid.grid[startupLocations[flight.end].x][startupLocations[flight.end].y];
-
-    const startNode = nearestNavigableNode(
-      grid,
-      requestedStart.x,
-      requestedStart.y,
-    );
-    const endNode = nearestNavigableNode(grid, requestedEnd.x, requestedEnd.y);
-
-    if (!startNode || !endNode) {
-      console.warn("No navigable start/end node found for flight.", flight);
-      continue;
-    }
-
-    const pathNodes = pathFinder.aStar(startNode, endNode);
-
-    if (!pathNodes || pathNodes.length < 2) {
-      console.warn("No path returned from A*.", pathNodes);
-      continue;
-    }
-
-    // ✅ Keep in GRID coords: [[x,y],...]
-    const pathGrid = Array.isArray(pathNodes[0])
-      ? pathNodes
-      : pathNodes.map((n) => [n.x, n.y]);
-
-    const hasNonNavigableStep = pathGrid.some(
-      ([x, y]) =>
-        !grid.grid[x] || !grid.grid[x][y] || !grid.grid[x][y].navigable,
-    );
-
-    if (hasNonNavigableStep) {
-      console.warn("Path contains non-navigable nodes; aborting animation.");
-      continue;
-    }
-
-    const stationMs = parseStationTime(flight.stationTime);
-    if (stationMs === null) {
-      console.warn("Invalid station time; skipping flight.", flight);
+    const startIndex = Number(flight.start);
+    const endIndex = Number(flight.end);
+    const validStart = Number.isInteger(startIndex) && gateCoordinates[startIndex];
+    const validEnd = Number.isInteger(endIndex) && startupLocations[endIndex];
+    if (!validStart || !validEnd) {
+      console.warn("Invalid gate/startup index; skipping flight.", flight);
       continue;
     }
 
     slot.planeEl.style.display = "none";
+    slot.planeEl.style.opacity = "1";
     schedule.push({
       slot,
-      pathGrid,
-      stationMs,
+      flight,
+      gateIndex: startIndex,
+      preferredStartupIndex: endIndex,
+      stationMs: desiredStationMs,
+      assignedStartupIndex: null,
+      startupReleaseMs: Number.NEGATIVE_INFINITY,
+      pathGrid: null,
       started: false,
     });
   }
@@ -553,12 +1130,28 @@ function activateScheduledFlights() {
   if (!simulationActive) return;
   for (const entry of flightSchedule) {
     if (entry.started || simClockMs < entry.stationMs) continue;
+
+    const dispatchPlan = resolveDispatchPlan(entry, simClockMs);
+    if (!dispatchPlan) {
+      continue;
+    }
+    const pathDurationMs = estimatePathDurationMs(dispatchPlan.pathGrid);
+    entry.pathGrid = dispatchPlan.pathGrid;
+    entry.assignedStartupIndex = dispatchPlan.startupIndex;
+    entry.startupReleaseMs =
+      simClockMs + pathDurationMs + STARTUP_OCCUPANCY_BUFFER_MS;
+
+    entry.slot.fadeOutStartMs = null;
+    entry.slot.fadeOutEndMs = null;
+    entry.slot.noFade = false;
+    entry.slot.planeEl.style.opacity = "1";
     entry.slot.planeEl.style.display = "block";
     entry.slot.animator.startPath(
       entry.slot.planeEl,
-      entry.pathGrid,
+      dispatchPlan.pathGrid,
       TAXI_SPEED_PX_PER_SIM_SEC,
     );
+    entry.slot.holdForSeparation = false;
     entry.started = true;
   }
 }
@@ -568,12 +1161,52 @@ function stopAllAnimations() {
     slot.animator.stop();
     slot.collisionStopped = false;
     slot.flightNumber = null;
+    slot.fadeOutStartMs = null;
+    slot.fadeOutEndMs = null;
+    slot.noFade = false;
+    slot.holdForSeparation = false;
     slot.planeEl.style.display = "none";
+    slot.planeEl.style.opacity = "1";
     const flightLabel = slot.planeEl.querySelector(".plane-flight-number");
     if (flightLabel) flightLabel.textContent = "----";
   }
   simulationActive = false;
   flightSchedule = [];
+}
+
+function scheduleFadeOut(slot) {
+  if (!Number.isFinite(simClockMs)) return;
+  if (slot.noFade) return;
+  const delayMs =
+    FADE_DELAY_MIN_MS +
+    Math.random() * (FADE_DELAY_MAX_MS - FADE_DELAY_MIN_MS);
+  slot.fadeOutStartMs = simClockMs + delayMs;
+  slot.fadeOutEndMs = slot.fadeOutStartMs + FADE_DURATION_MS;
+}
+
+function updateFadeOuts() {
+  if (!Number.isFinite(simClockMs)) return;
+  for (const slot of animators) {
+    if (
+      slot.fadeOutStartMs === null ||
+      slot.fadeOutEndMs === null ||
+      slot.planeEl.style.display === "none" ||
+      slot.noFade
+    ) {
+      continue;
+    }
+    if (simClockMs < slot.fadeOutStartMs) continue;
+    const span = slot.fadeOutEndMs - slot.fadeOutStartMs;
+    const t = span <= 0 ? 1 : (simClockMs - slot.fadeOutStartMs) / span;
+    const clamped = Math.max(0, Math.min(1, t));
+    slot.planeEl.style.opacity = (1 - clamped).toFixed(3);
+    if (clamped >= 1) {
+      slot.planeEl.style.display = "none";
+      slot.planeEl.style.opacity = "1";
+      slot.fadeOutStartMs = null;
+      slot.fadeOutEndMs = null;
+    }
+  }
 }
 
 function clearCollisionVisuals() {
@@ -640,6 +1273,14 @@ function detectAndHandleCollisions(tStamp) {
         b.animator.pause(tStamp);
         b.collisionStopped = true;
       }
+      a.noFade = true;
+      b.noFade = true;
+      a.fadeOutStartMs = null;
+      a.fadeOutEndMs = null;
+      b.fadeOutStartMs = null;
+      b.fadeOutEndMs = null;
+      a.planeEl.style.opacity = "1";
+      b.planeEl.style.opacity = "1";
       collisionPairs.add(pairKey);
 
       const hitX = sweptResult.point
@@ -658,14 +1299,27 @@ function detectAndHandleCollisions(tStamp) {
   }
 }
 
-function startAllFlights() {
+async function getFlightsForSimulation() {
+  if (!dataReady) return [];
+  await dataReady;
+  return flightData;
+}
+
+async function startAllFlights() {
   if (!mapReady) {
     console.warn("Map is still loading, please try Start again.");
     return;
   }
+  const sourceFlights = await getFlightsForSimulation();
+  if (!sourceFlights.length) {
+    console.warn("No spreadsheet departures loaded. Upload the schedule file first.");
+    updateTimeScaleUI();
+    return;
+  }
+  ensureAnimatorCapacity(sourceFlights.length);
   stopAllAnimations();
   clearCollisionVisuals();
-  flightSchedule = buildFlightSchedule(flights);
+  flightSchedule = buildFlightSchedule(sourceFlights);
   if (flightSchedule.length === 0) {
     console.warn("No valid flights available for simulation.");
     updateTimeScaleUI();
@@ -681,8 +1335,8 @@ function startAllFlights() {
 }
 
 if (startBtn) {
-  startBtn.addEventListener("click", () => {
-    startAllFlights();
+  startBtn.addEventListener("click", async () => {
+    await startAllFlights();
   });
 }
 
@@ -692,6 +1346,7 @@ if (pauseBtn) {
     if (!isPaused) {
       for (const slot of animators) {
         if (slot.collisionStopped) continue;
+        if (slot.holdForSeparation) continue;
         slot.animator.pause(now);
       }
       isPaused = true;
@@ -702,6 +1357,7 @@ if (pauseBtn) {
 
     for (const slot of animators) {
       if (slot.collisionStopped) continue;
+      if (slot.holdForSeparation) continue;
       slot.animator.resume(now);
     }
     isPaused = false;
@@ -711,19 +1367,20 @@ if (pauseBtn) {
 }
 
 if (resetBtn) {
-  resetBtn.addEventListener("click", () => {
-    startAllFlights();
+  resetBtn.addEventListener("click", async () => {
+    await startAllFlights();
   });
 }
 
 if (emergencyBtn) {
   emergencyBtn.addEventListener("click", () => {
-    stopAllAnimations();
-    clearCollisionVisuals();
-    isPaused = false;
-    simClockMs = Number.NaN;
-    simClockLastTs = null;
-    if (pauseBtn) pauseBtn.textContent = "⏸️ Pause";
+    const now = performance.now();
+    for (const slot of animators) {
+      slot.animator.pause(now);
+    }
+    isPaused = true;
+    simClockLastTs = now;
+    if (pauseBtn) pauseBtn.textContent = "▶️ Resume";
     updateTimeScaleUI();
   });
 }
@@ -787,8 +1444,15 @@ function runAnimation(tStamp) {
   detectAndHandleCollisions(tStamp);
 
   for (const slot of animators) {
-    slot.animator.runAnimation(tStamp, timeScale);
+    const finished = slot.animator.runAnimation(tStamp, timeScale);
+    if (finished) {
+      if (slot.fadeOutStartMs === null) {
+        scheduleFadeOut(slot);
+      }
+      slot.holdForSeparation = false;
+    }
   }
+  updateFadeOuts();
   detectAndHandleCollisions(tStamp);
   updateTimeScaleUI();
   requestAnimationFrame(runAnimation);
