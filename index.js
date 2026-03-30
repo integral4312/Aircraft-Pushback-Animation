@@ -23,6 +23,13 @@ const timeScaleDownBtn = document.getElementById("timeScaleDown");
 const timeScaleUpBtn = document.getElementById("timeScaleUp");
 const timeScaleValue = document.getElementById("timeScaleValue");
 const simClockValue = document.getElementById("simClockValue");
+const fileInput = document.getElementById("fileInput");
+const filterDayInput = document.getElementById("filterDayInput");
+const filterTimeInput = document.getElementById("filterTimeInput");
+const applyFilterBtn = document.getElementById("applyFilterBtn");
+const clearFilterBtn = document.getElementById("clearFilterBtn");
+const filterSummaryText = document.getElementById("filterSummaryText");
+const filterModeValue = document.getElementById("filterModeValue");
 
 // Array holding the grid of nodes for the algorithm
 const grid = new Grid(1000, canvas);
@@ -59,6 +66,8 @@ let simClockMs = Number.NaN;
 let simClockLastTs = null;
 let flightSchedule = [];
 let simulationActive = false;
+let selectedFilterDay = null;
+let selectedFilterTimeMinutes = null;
 const FADE_DELAY_MIN_MS = 2 * 60 * 1000;
 const FADE_DELAY_MAX_MS = 3 * 60 * 1000;
 const FADE_DURATION_MS = 15 * 1000;
@@ -148,6 +157,7 @@ const startupLocations = [
   { id: "11", x: 423, y: 677 },
   { id: "charlie", x: 207, y: 207 },
   { id: "delta", x: 577, y: 927 },
+  { id: "u1", x: 535, y: 165 },
 ];
 
 const flights = [
@@ -281,6 +291,107 @@ function formatSimClock(ms) {
   ).slice(-2)} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(
     d.getSeconds(),
   )}`;
+}
+
+function parseFilterDayValue() {
+  if (!filterDayInput) return null;
+  const raw = filterDayInput.value.trim();
+  if (!raw) return null;
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > 31) return null;
+  return parsed;
+}
+
+function parseFilterTimeMinutesValue() {
+  if (!filterTimeInput) return null;
+  const raw = filterTimeInput.value.trim();
+  if (!raw) return null;
+  const match = raw.match(/^(\d{2}):(\d{2})$/);
+  if (!match) return null;
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (!Number.isInteger(hour) || !Number.isInteger(minute)) return null;
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
+  return hour * 60 + minute;
+}
+
+function formatMinutesAsClock(totalMinutes) {
+  if (!Number.isInteger(totalMinutes)) return "Any";
+  const hour = Math.floor(totalMinutes / 60);
+  const minute = totalMinutes % 60;
+  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+}
+
+function applyCurrentFlightFilters(sourceFlights) {
+  if (!Array.isArray(sourceFlights)) return [];
+  return sourceFlights.filter((flight) => {
+    const stationMs = parseStationTime(flight.stationTime);
+    if (!Number.isFinite(stationMs)) return false;
+    const stationDate = new Date(stationMs);
+
+    if (
+      Number.isInteger(selectedFilterDay) &&
+      stationDate.getDate() !== selectedFilterDay
+    ) {
+      return false;
+    }
+
+    if (Number.isInteger(selectedFilterTimeMinutes)) {
+      const flightMinutes =
+        stationDate.getHours() * 60 + stationDate.getMinutes();
+      if (flightMinutes < selectedFilterTimeMinutes) {
+        return false;
+      }
+    }
+    return true;
+  });
+}
+
+function updateFilterModePill() {
+  if (!filterModeValue) return;
+  if (
+    !Number.isInteger(selectedFilterDay) &&
+    !Number.isInteger(selectedFilterTimeMinutes)
+  ) {
+    filterModeValue.textContent = "All";
+    return;
+  }
+
+  const parts = [];
+  if (Number.isInteger(selectedFilterDay)) parts.push(`D${selectedFilterDay}`);
+  if (Number.isInteger(selectedFilterTimeMinutes)) {
+    parts.push(formatMinutesAsClock(selectedFilterTimeMinutes));
+  }
+  filterModeValue.textContent = parts.join(" • ");
+}
+
+async function updateFilterSummaryText() {
+  if (!filterSummaryText) return;
+
+  if (!dataReady) {
+    filterSummaryText.textContent =
+      "Upload a spreadsheet, then apply day/time filters.";
+    return;
+  }
+
+  await dataReady;
+  const allFlights = Array.isArray(flightData) ? flightData : [];
+  const filteredFlights = applyCurrentFlightFilters(allFlights);
+  const dayLabel = Number.isInteger(selectedFilterDay)
+    ? `day ${selectedFilterDay}`
+    : "all days";
+  const timeLabel = Number.isInteger(selectedFilterTimeMinutes)
+    ? `time ${formatMinutesAsClock(selectedFilterTimeMinutes)} or later`
+    : "all times";
+
+  filterSummaryText.textContent = `${filteredFlights.length} of ${allFlights.length} departures match (${dayLabel}, ${timeLabel}).`;
+}
+
+async function syncFiltersFromInputs() {
+  selectedFilterDay = parseFilterDayValue();
+  selectedFilterTimeMinutes = parseFilterTimeMinutesValue();
+  updateFilterModePill();
+  await updateFilterSummaryText();
 }
 
 function updateTimeScaleUI() {
@@ -1302,7 +1413,7 @@ function detectAndHandleCollisions(tStamp) {
 async function getFlightsForSimulation() {
   if (!dataReady) return [];
   await dataReady;
-  return flightData;
+  return applyCurrentFlightFilters(flightData);
 }
 
 async function startAllFlights() {
@@ -1399,7 +1510,40 @@ if (timeScaleUpBtn) {
   });
 }
 
+if (applyFilterBtn) {
+  applyFilterBtn.addEventListener("click", async () => {
+    await syncFiltersFromInputs();
+  });
+}
+
+if (clearFilterBtn) {
+  clearFilterBtn.addEventListener("click", async () => {
+    if (filterDayInput) filterDayInput.value = "";
+    if (filterTimeInput) filterTimeInput.value = "";
+    selectedFilterDay = null;
+    selectedFilterTimeMinutes = null;
+    updateFilterModePill();
+    await updateFilterSummaryText();
+  });
+}
+
+if (fileInput) {
+  fileInput.addEventListener("change", async () => {
+    // Wait for data.js parsing to finish before recalculating filter counts.
+    if (dataReady) {
+      try {
+        await dataReady;
+      } catch (err) {
+        // Ignore read failures here; data.js handles upload errors.
+      }
+    }
+    await updateFilterSummaryText();
+  });
+}
+
 updateTimeScaleUI();
+updateFilterModePill();
+updateFilterSummaryText();
 
 function drawMouseOverlay() {
   const boxWidth = 90;
