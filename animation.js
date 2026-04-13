@@ -1,5 +1,16 @@
 import { gridToCanvasFactor } from "./index.js";
 
+const AIRCRAFT_HEADING_OFFSET_DEG = 90;
+const HEADING_LOOKAHEAD_PX = 16;
+
+function normalizeDegrees(deg) {
+  return ((deg % 360) + 360) % 360;
+}
+
+function angleBetweenPoints(a, b) {
+  return (Math.atan2(b.y - a.y, b.x - a.x) * 180) / Math.PI;
+}
+
 export class Animator {
   constructor() {
     this.activePath = null;
@@ -15,6 +26,7 @@ export class Animator {
     this.currentY = null;
     this.prevX = null;
     this.prevY = null;
+    this.points = [];
   }
 
   startPath(planeEl, pathGrid, speedPixelsPerSec) {
@@ -47,6 +59,7 @@ export class Animator {
     }
 
     this.activePath = { points };
+    this.points = points;
 
     // Initialize plane position at the start.
     planeEl.style.left = `${points[0].x}px`;
@@ -57,13 +70,43 @@ export class Animator {
     this.prevY = points[0].y;
 
     if (this.segments.length > 0) {
-      const first = this.segments[0];
-      const angle = Math.atan2(first.dy, first.dx);
       this.glyphEl.style.setProperty(
         "--heading",
-        `${(angle * 180) / Math.PI}deg`
+        `${this.getDisplayHeading(0)}deg`
       );
     }
+  }
+
+  pointAtDistance(distance) {
+    if (!Array.isArray(this.points) || this.points.length === 0) return null;
+    if (!Array.isArray(this.segments) || this.segments.length === 0) {
+      return this.points[0];
+    }
+
+    const clampedDistance = Math.max(0, Math.min(distance, this.totalLength));
+    let traversed = 0;
+    for (const segment of this.segments) {
+      if (traversed + segment.length >= clampedDistance) {
+        const offset = clampedDistance - traversed;
+        const t = segment.length === 0 ? 0 : offset / segment.length;
+        return {
+          x: segment.a.x + segment.dx * t,
+          y: segment.a.y + segment.dy * t,
+        };
+      }
+      traversed += segment.length;
+    }
+
+    return this.points[this.points.length - 1];
+  }
+
+  getDisplayHeading(distance) {
+    const from = this.pointAtDistance(Math.max(0, distance - HEADING_LOOKAHEAD_PX));
+    const to = this.pointAtDistance(
+      Math.min(this.totalLength, distance + HEADING_LOOKAHEAD_PX),
+    );
+    if (!from || !to) return AIRCRAFT_HEADING_OFFSET_DEG;
+    return normalizeDegrees(angleBetweenPoints(from, to) + AIRCRAFT_HEADING_OFFSET_DEG);
   }
 
   runAnimation(tStamp, timeScale = 1) {
@@ -98,14 +141,13 @@ export class Animator {
         const t = segment.length === 0 ? 0 : remaining / segment.length;
         const x = segment.a.x + segment.dx * t;
         const y = segment.a.y + segment.dy * t;
-        const angle = Math.atan2(segment.dy, segment.dx);
         this.planeEl.style.left = `${x}px`;
         this.planeEl.style.top = `${y}px`;
         this.currentX = x;
         this.currentY = y;
         this.glyphEl.style.setProperty(
           "--heading",
-          `${(angle * 180) / Math.PI}deg`
+          `${this.getDisplayHeading(this.distanceTravelled)}deg`
         );
         break;
       }
@@ -133,6 +175,7 @@ export class Animator {
     this.distanceTravelled = 0;
     this.lastTStamp = null;
     this.isPaused = false;
+    this.points = [];
   }
 
   getPosition() {
