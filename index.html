@@ -150,6 +150,27 @@
         animation: warningBlink 0.8s step-end infinite;
       }
 
+      .g-gate-alert {
+        display: none;
+        margin: 10px auto 0;
+        width: fit-content;
+        max-width: min(92vw, 900px);
+        padding: 10px 16px;
+        border-radius: 999px;
+        font-weight: 700;
+        letter-spacing: 0.8px;
+        text-transform: uppercase;
+        background: rgba(13, 71, 161, 0.92);
+        border: 1px solid rgba(131, 197, 255, 0.85);
+        color: #f7fcff;
+        box-shadow: 0 10px 28px rgba(13, 71, 161, 0.35);
+      }
+
+      .g-gate-alert.active {
+        display: block;
+        animation: alertPulse 2.8s ease-in-out infinite;
+      }
+
       .incursion-dot {
         position: absolute;
         width: 14px;
@@ -184,6 +205,18 @@
         50.01%,
         100% {
           opacity: 0.1;
+        }
+      }
+
+      @keyframes alertPulse {
+        0%,
+        100% {
+          transform: translateY(0);
+          box-shadow: 0 10px 28px rgba(13, 71, 161, 0.35);
+        }
+        50% {
+          transform: translateY(-1px);
+          box-shadow: 0 14px 34px rgba(45, 242, 255, 0.32);
         }
       }
 
@@ -416,8 +449,9 @@
         position: absolute;
         left: 0;
         top: 0;
-        font-size: 32px;
-        line-height: 1;
+        width: 52px;
+        height: 52px;
+        object-fit: contain;
         transform-origin: center center;
         transform: translate(-50%, -50%) rotate(var(--heading, 0deg));
       }
@@ -425,7 +459,7 @@
       .plane-flight-number {
         position: absolute;
         left: 0;
-        top: 18px;
+        top: 36px;
         transform: translateX(-50%);
         font-family: "Space Grotesk", system-ui, sans-serif;
         font-size: 10px;
@@ -520,6 +554,7 @@
       <button class="emergency">🚨 Emergency Stop</button>
     </div>
     <div id="collisionWarning" class="collision-warning">Collision Warning</div>
+    <div id="gGateAlert" class="g-gate-alert">G Gate Pushback Alert</div>
 
     <main class="main">
       <div class="shape one"></div>
@@ -576,13 +611,10 @@
             <span class="pill" id="filterModeValue">All</span>
           </div>
           <div class="filter-row">
-            <label for="filterDayInput">Day Of Month</label>
+            <label for="filterDateInput">Date</label>
             <input
-              id="filterDayInput"
-              type="number"
-              min="1"
-              max="31"
-              placeholder="Any day"
+              id="filterDateInput"
+              type="date"
             />
           </div>
           <div class="filter-row">
@@ -595,6 +627,16 @@
           </div>
           <div class="filter-note" id="filterSummaryText">
             Showing all departures from uploaded spreadsheet.
+          </div>
+        </div>
+
+        <div class="filter-card">
+          <div class="weather-title">
+            <span>G Gate Traffic</span>
+            <span class="pill" id="gGateStatusValue">Clear</span>
+          </div>
+          <div class="filter-note" id="gGateFlightsText">
+            No filtered flights are currently assigned to gates G5-G10.
           </div>
         </div>
 
@@ -611,44 +653,74 @@
       <div class="map-container">
         <canvas id="mapCanvas" width="1600" height="1600"></canvas>
         <div id="plane1" class="plane-icon">
-          <span class="plane-glyph">✈️</span
-          ><span class="plane-flight-number">----</span>
+          <img
+            class="plane-glyph"
+            src="./JetBlue_nobackground.png"
+            alt="JetBlue aircraft"
+          /><span class="plane-flight-number">----</span>
         </div>
         <div id="plane2" class="plane-icon">
-          <span class="plane-glyph">✈️</span
-          ><span class="plane-flight-number">----</span>
+          <img
+            class="plane-glyph"
+            src="./JetBlue_nobackground.png"
+            alt="JetBlue aircraft"
+          /><span class="plane-flight-number">----</span>
         </div>
         <div id="plane3" class="plane-icon">
-          <span class="plane-glyph">✈️</span
-          ><span class="plane-flight-number">----</span>
+          <img
+            class="plane-glyph"
+            src="./JetBlue_nobackground.png"
+            alt="JetBlue aircraft"
+          /><span class="plane-flight-number">----</span>
         </div>
         <div id="plane4" class="plane-icon">
-          <span class="plane-glyph">✈️</span
-          ><span class="plane-flight-number">----</span>
+          <img
+            class="plane-glyph"
+            src="./JetBlue_nobackground.png"
+            alt="JetBlue aircraft"
+          /><span class="plane-flight-number">----</span>
         </div>
         <div id="plane5" class="plane-icon">
-          <span class="plane-glyph">✈️</span
-          ><span class="plane-flight-number">----</span>
+          <img
+            class="plane-glyph"
+            src="./JetBlue_nobackground.png"
+            alt="JetBlue aircraft"
+          /><span class="plane-flight-number">----</span>
         </div>
         <div id="plane6" class="plane-icon">
-          <span class="plane-glyph">✈️</span
-          ><span class="plane-flight-number">----</span>
+          <img
+            class="plane-glyph"
+            src="./JetBlue_nobackground.png"
+            alt="JetBlue aircraft"
+          /><span class="plane-flight-number">----</span>
         </div>
         <div id="plane7" class="plane-icon">
-          <span class="plane-glyph">✈️</span
-          ><span class="plane-flight-number">----</span>
+          <img
+            class="plane-glyph"
+            src="./JetBlue_nobackground.png"
+            alt="JetBlue aircraft"
+          /><span class="plane-flight-number">----</span>
         </div>
         <div id="plane8" class="plane-icon">
-          <span class="plane-glyph">✈️</span
-          ><span class="plane-flight-number">----</span>
+          <img
+            class="plane-glyph"
+            src="./JetBlue_nobackground.png"
+            alt="JetBlue aircraft"
+          /><span class="plane-flight-number">----</span>
         </div>
         <div id="plane9" class="plane-icon">
-          <span class="plane-glyph">✈️</span
-          ><span class="plane-flight-number">----</span>
+          <img
+            class="plane-glyph"
+            src="./JetBlue_nobackground.png"
+            alt="JetBlue aircraft"
+          /><span class="plane-flight-number">----</span>
         </div>
         <div id="plane10" class="plane-icon">
-          <span class="plane-glyph">✈️</span
-          ><span class="plane-flight-number">----</span>
+          <img
+            class="plane-glyph"
+            src="./JetBlue_nobackground.png"
+            alt="JetBlue aircraft"
+          /><span class="plane-flight-number">----</span>
         </div>
       </div>
     </main>
