@@ -14,6 +14,7 @@ const wxHumidity = document.getElementById("wxHumidity");
 const wxPressure = document.getElementById("wxPressure");
 const mapContainer = document.querySelector(".map-container");
 const collisionWarning = document.getElementById("collisionWarning");
+const gGateAlert = document.getElementById("gGateAlert");
 const startBtn = document.querySelector(".start");
 const pauseBtn = document.querySelector(".pause");
 const resetBtn = document.querySelector(".reset");
@@ -24,12 +25,14 @@ const timeScaleUpBtn = document.getElementById("timeScaleUp");
 const timeScaleValue = document.getElementById("timeScaleValue");
 const simClockValue = document.getElementById("simClockValue");
 const fileInput = document.getElementById("fileInput");
-const filterDayInput = document.getElementById("filterDayInput");
+const filterDateInput = document.getElementById("filterDateInput");
 const filterTimeInput = document.getElementById("filterTimeInput");
 const applyFilterBtn = document.getElementById("applyFilterBtn");
 const clearFilterBtn = document.getElementById("clearFilterBtn");
 const filterSummaryText = document.getElementById("filterSummaryText");
 const filterModeValue = document.getElementById("filterModeValue");
+const gGateStatusValue = document.getElementById("gGateStatusValue");
+const gGateFlightsText = document.getElementById("gGateFlightsText");
 
 // Array holding the grid of nodes for the algorithm
 const grid = new Grid(1000, canvas);
@@ -66,15 +69,16 @@ let simClockMs = Number.NaN;
 let simClockLastTs = null;
 let flightSchedule = [];
 let simulationActive = false;
-let selectedFilterDay = null;
+let selectedFilterDate = null;
 let selectedFilterTimeMinutes = null;
+let gGateAlertHideTimeout = null;
 const FADE_DELAY_MIN_MS = 2 * 60 * 1000;
 const FADE_DELAY_MAX_MS = 3 * 60 * 1000;
 const FADE_DURATION_MS = 15 * 1000;
 
 for (let i = 0; i < animators.length; i++) {
   const glyph = animators[i].planeEl.querySelector(".plane-glyph");
-  if (glyph) glyph.style.filter = `hue-rotate(${(i * 27) % 360}deg)`;
+  if (glyph) glyph.style.filter = "none";
   animators[i].planeEl.style.display = "none";
   animators[i].planeEl.style.opacity = "1";
   animators[i].noFade = false;
@@ -83,7 +87,7 @@ for (let i = 0; i < animators.length; i++) {
 
 function styleAnimatorSlot(slot, index) {
   const glyph = slot.planeEl.querySelector(".plane-glyph");
-  if (glyph) glyph.style.filter = `hue-rotate(${(index * 27) % 360}deg)`;
+  if (glyph) glyph.style.filter = "none";
   slot.planeEl.style.display = "none";
   slot.planeEl.style.opacity = "1";
   slot.noFade = false;
@@ -240,15 +244,15 @@ function parseStationTime(stationTime) {
   }
   if (!stationTime || typeof stationTime !== "string") return null;
 
-  const directParse = Date.parse(stationTime);
-  if (Number.isFinite(directParse)) return directParse;
-
   const match = stationTime
     .trim()
     .match(
       /^(\d{1,2})\/(\d{1,2})\/(\d{2,4})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)?$/i,
     );
-  if (!match) return null;
+  if (!match) {
+    const directParse = Date.parse(stationTime);
+    return Number.isFinite(directParse) ? directParse : null;
+  }
 
   const monthRaw = Number(match[1]);
   const dayRaw = Number(match[2]);
@@ -293,13 +297,11 @@ function formatSimClock(ms) {
   )}`;
 }
 
-function parseFilterDayValue() {
-  if (!filterDayInput) return null;
-  const raw = filterDayInput.value.trim();
+function parseFilterDateValue() {
+  if (!filterDateInput) return null;
+  const raw = filterDateInput.value.trim();
   if (!raw) return null;
-  const parsed = Number.parseInt(raw, 10);
-  if (!Number.isInteger(parsed) || parsed < 1 || parsed > 31) return null;
-  return parsed;
+  return /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : null;
 }
 
 function parseFilterTimeMinutesValue() {
@@ -315,6 +317,21 @@ function parseFilterTimeMinutesValue() {
   return hour * 60 + minute;
 }
 
+function stationDateKey(ms) {
+  if (!Number.isFinite(ms)) return null;
+  const d = new Date(ms);
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function formatDateKey(dateKey) {
+  if (!dateKey || !/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) return "any date";
+  const [year, month, day] = dateKey.split("-");
+  return `${month}/${day}/${year.slice(-2)}`;
+}
+
 function formatMinutesAsClock(totalMinutes) {
   if (!Number.isInteger(totalMinutes)) return "Any";
   const hour = Math.floor(totalMinutes / 60);
@@ -327,16 +344,13 @@ function applyCurrentFlightFilters(sourceFlights) {
   return sourceFlights.filter((flight) => {
     const stationMs = parseStationTime(flight.stationTime);
     if (!Number.isFinite(stationMs)) return false;
-    const stationDate = new Date(stationMs);
 
-    if (
-      Number.isInteger(selectedFilterDay) &&
-      stationDate.getDate() !== selectedFilterDay
-    ) {
+    if (selectedFilterDate && stationDateKey(stationMs) !== selectedFilterDate) {
       return false;
     }
 
     if (Number.isInteger(selectedFilterTimeMinutes)) {
+      const stationDate = new Date(stationMs);
       const flightMinutes =
         stationDate.getHours() * 60 + stationDate.getMinutes();
       if (flightMinutes < selectedFilterTimeMinutes) {
@@ -350,7 +364,7 @@ function applyCurrentFlightFilters(sourceFlights) {
 function updateFilterModePill() {
   if (!filterModeValue) return;
   if (
-    !Number.isInteger(selectedFilterDay) &&
+    !selectedFilterDate &&
     !Number.isInteger(selectedFilterTimeMinutes)
   ) {
     filterModeValue.textContent = "All";
@@ -358,7 +372,7 @@ function updateFilterModePill() {
   }
 
   const parts = [];
-  if (Number.isInteger(selectedFilterDay)) parts.push(`D${selectedFilterDay}`);
+  if (selectedFilterDate) parts.push(formatDateKey(selectedFilterDate));
   if (Number.isInteger(selectedFilterTimeMinutes)) {
     parts.push(formatMinutesAsClock(selectedFilterTimeMinutes));
   }
@@ -377,9 +391,9 @@ async function updateFilterSummaryText() {
   await dataReady;
   const allFlights = Array.isArray(flightData) ? flightData : [];
   const filteredFlights = applyCurrentFlightFilters(allFlights);
-  const dayLabel = Number.isInteger(selectedFilterDay)
-    ? `day ${selectedFilterDay}`
-    : "all days";
+  const dayLabel = selectedFilterDate
+    ? `date ${formatDateKey(selectedFilterDate)}`
+    : "all dates";
   const timeLabel = Number.isInteger(selectedFilterTimeMinutes)
     ? `time ${formatMinutesAsClock(selectedFilterTimeMinutes)} or later`
     : "all times";
@@ -388,10 +402,11 @@ async function updateFilterSummaryText() {
 }
 
 async function syncFiltersFromInputs() {
-  selectedFilterDay = parseFilterDayValue();
+  selectedFilterDate = parseFilterDateValue();
   selectedFilterTimeMinutes = parseFilterTimeMinutesValue();
   updateFilterModePill();
   await updateFilterSummaryText();
+  await updateGGateTrafficIndicator();
 }
 
 function updateTimeScaleUI() {
@@ -412,6 +427,72 @@ function updatePushbackQueue() {
     return simClockMs <= entry.stationMs;
   }).length;
   pushbackQueueValue.textContent = `${queued} Flight${queued === 1 ? "" : "s"}`;
+}
+
+function isGGateIndex(gateIndex) {
+  return Number.isInteger(gateIndex) && /^G/i.test(gateCoordinates[gateIndex]?.id || "");
+}
+
+function updateGGateTrafficIndicatorFromEntries(entries) {
+  if (!gGateStatusValue || !gGateFlightsText) return;
+  const gEntries = (Array.isArray(entries) ? entries : []).filter((entry) =>
+    isGGateIndex(entry.gateIndex),
+  );
+
+  if (gEntries.length === 0) {
+    gGateStatusValue.textContent = "Clear";
+    gGateFlightsText.textContent =
+      "No filtered flights are currently assigned to gates G5-G10.";
+    return;
+  }
+
+  const pending = gEntries.filter((entry) => !entry.started).length;
+  const taxiing = gEntries.filter((entry) => {
+    if (!entry.started) return false;
+    const slot = entry.slot;
+    return (
+      Boolean(slot?.planeEl) &&
+      slot.planeEl.style.display !== "none" &&
+      slot.animator.isActive()
+    );
+  }).length;
+  const flightsSummary = gEntries
+    .map((entry) => `${entry.flight.flightNumber} ${gateCoordinates[entry.gateIndex].id}`)
+    .join(", ");
+
+  if (taxiing > 0) {
+    gGateStatusValue.textContent = `${taxiing} Taxiing`;
+  } else if (pending > 0) {
+    gGateStatusValue.textContent = `${pending} Queued`;
+  } else {
+    gGateStatusValue.textContent = `${gEntries.length} Seen`;
+  }
+
+  const statusParts = [];
+  if (pending > 0) statusParts.push(`${pending} waiting`);
+  if (taxiing > 0) statusParts.push(`${taxiing} taxiing off-map`);
+  if (statusParts.length === 0) statusParts.push("all completed or faded");
+  gGateFlightsText.textContent = `${statusParts.join(", ")}. Flights: ${flightsSummary}.`;
+}
+
+async function updateGGateTrafficIndicator() {
+  if (simulationActive && flightSchedule.length > 0) {
+    updateGGateTrafficIndicatorFromEntries(flightSchedule);
+    return;
+  }
+  if (!dataReady) {
+    updateGGateTrafficIndicatorFromEntries([]);
+    return;
+  }
+  await dataReady;
+  const sourceFlights = applyCurrentFlightFilters(flightData);
+  const previewEntries = sourceFlights.map((flight) => ({
+    flight,
+    gateIndex: Number(flight.start),
+    started: false,
+    slot: null,
+  }));
+  updateGGateTrafficIndicatorFromEntries(previewEntries);
 }
 
 function updateSimClock(tStamp) {
@@ -1262,6 +1343,13 @@ function activateScheduledFlights() {
       dispatchPlan.pathGrid,
       TAXI_SPEED_PX_PER_SIM_SEC,
     );
+    if (isGGateIndex(entry.gateIndex)) {
+      showGGateAlert(
+        entry.flight.flightNumber,
+        gateCoordinates[entry.gateIndex].id,
+        startupLocations[dispatchPlan.startupIndex].id,
+      );
+    }
     entry.slot.holdForSeparation = false;
     entry.started = true;
   }
@@ -1283,6 +1371,15 @@ function stopAllAnimations() {
   }
   simulationActive = false;
   flightSchedule = [];
+  if (gGateAlert) {
+    gGateAlert.classList.remove("active");
+    gGateAlert.textContent = "G Gate Pushback Alert";
+  }
+  if (gGateAlertHideTimeout !== null) {
+    clearTimeout(gGateAlertHideTimeout);
+    gGateAlertHideTimeout = null;
+  }
+  updateGGateTrafficIndicatorFromEntries([]);
 }
 
 function scheduleFadeOut(slot) {
@@ -1346,6 +1443,21 @@ function raiseCollisionAlert(flightA, flightB, x, y) {
     collisionWarning.classList.add("active");
     collisionWarning.textContent = `Collision Warning: ${flightA} / ${flightB}`;
   }
+}
+
+function showGGateAlert(flightNumber, gateId, startupId) {
+  if (!gGateAlert) return;
+  if (gGateAlertHideTimeout !== null) {
+    clearTimeout(gGateAlertHideTimeout);
+    gGateAlertHideTimeout = null;
+  }
+
+  gGateAlert.textContent = `G Gate Alert: Flight ${flightNumber} pushing from ${gateId} to startup ${startupId}`;
+  gGateAlert.classList.add("active");
+  gGateAlertHideTimeout = window.setTimeout(() => {
+    gGateAlert.classList.remove("active");
+    gGateAlertHideTimeout = null;
+  }, 5000);
 }
 
 function detectAndHandleCollisions(tStamp) {
@@ -1442,6 +1554,7 @@ async function startAllFlights() {
   simulationActive = true;
   isPaused = false;
   if (pauseBtn) pauseBtn.textContent = "⏸️ Pause";
+  updateGGateTrafficIndicatorFromEntries(flightSchedule);
   updateTimeScaleUI();
 }
 
@@ -1518,12 +1631,13 @@ if (applyFilterBtn) {
 
 if (clearFilterBtn) {
   clearFilterBtn.addEventListener("click", async () => {
-    if (filterDayInput) filterDayInput.value = "";
+    if (filterDateInput) filterDateInput.value = "";
     if (filterTimeInput) filterTimeInput.value = "";
-    selectedFilterDay = null;
+    selectedFilterDate = null;
     selectedFilterTimeMinutes = null;
     updateFilterModePill();
     await updateFilterSummaryText();
+    await updateGGateTrafficIndicator();
   });
 }
 
@@ -1538,11 +1652,13 @@ if (fileInput) {
       }
     }
     await updateFilterSummaryText();
+    await updateGGateTrafficIndicator();
   });
 }
 
 updateTimeScaleUI();
 updateFilterModePill();
+updateGGateTrafficIndicator();
 updateFilterSummaryText();
 
 function drawMouseOverlay() {
@@ -1598,6 +1714,9 @@ function runAnimation(tStamp) {
   }
   updateFadeOuts();
   detectAndHandleCollisions(tStamp);
+  if (simulationActive && flightSchedule.length > 0) {
+    updateGGateTrafficIndicatorFromEntries(flightSchedule);
+  }
   updateTimeScaleUI();
   requestAnimationFrame(runAnimation);
 }

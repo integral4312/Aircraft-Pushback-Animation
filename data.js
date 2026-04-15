@@ -22,21 +22,22 @@ function parseStationTimeMs(cell) {
         return cell.getTime();
     }
 
-    // Excel date serial number (days since 1899-12-30).
+    // Excel serials are interpreted as local spreadsheet times, not UTC timestamps.
     if (typeof cell === "number" && Number.isFinite(cell)) {
-        return Math.round((cell - 25569) * 86400 * 1000);
+        const excelEpochLocalMs = new Date(1899, 11, 30).getTime();
+        return excelEpochLocalMs + Math.round(cell * 86400 * 1000);
     }
 
     const raw = normalizeCell(cell);
     if (!raw) return null;
 
-    const parsed = Date.parse(raw);
-    if (Number.isFinite(parsed)) return parsed;
-
     const match = raw.match(
         /^(\d{1,2})\/(\d{1,2})\/(\d{2,4})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)?$/i
     );
-    if (!match) return null;
+    if (!match) {
+        const parsed = Date.parse(raw);
+        return Number.isFinite(parsed) ? parsed : null;
+    }
 
     const month = Number(match[1]);
     const day = Number(match[2]);
